@@ -60,7 +60,7 @@ The following arguments are supported:
 
 ### Output
 
-These generated .stc files are saved in the output directory:
+These generated .stc files are saved in the `output` directory:
 
 - `ultracool.stc`: Main catalog of ultra-cool dwarfs.
 - `ultracool_bins.stc`: Catalog of binary and multiple systems (if `--multiples` is enabled)
