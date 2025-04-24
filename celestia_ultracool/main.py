@@ -525,7 +525,7 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
 
                 system.components.append(primary)
 
-                if pd.notna(triple_row.sep_31):
+                if pd.notna(triple_row.sep_32):
                     subsystem = System(names, secondary.ra, secondary.dec, dist, secondary.spt_num, age, infourl, age_category)
                     tertiary = Dwarf(subsystem)
 
@@ -567,8 +567,13 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                     subsystem.components.append(tertiary)
                     system.components.append(subsystem)
                 else:
+                    # Handle unresolved subsystems as single stars
                     system.ra += bin_ra_offset / (1 + primary.mass / secondary.mass)
                     system.dec += bin_dec_offset / (1 + primary.mass / secondary.mass)
+
+                    system.components.append(secondary)
+
+                    output_bins.write('\n# Multiple system with unresolved subsystem')
 
                 system.write(output_bins, is_subdwarf=is_subdwarf, offset_coords=offset_coords)
 
