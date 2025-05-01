@@ -62,7 +62,7 @@ def strip_name(name: str) -> str:
     return re.sub(r'(?<=\w)\s*[b-zA-D][a-zB-D]*$', '', name)
 
 
-def get_distance(row: tuple) -> tuple[float, float, str]:
+def get_distance(row: pd.Series) -> tuple[float, float, str]:
     """Get non-rounded distance and error from dataset-specific columns."""
     if row.dist_formula_source == 'dist_plx_formula':
         if row.ref_plx_formula in ['Gaia21a', 'Gaia23']:

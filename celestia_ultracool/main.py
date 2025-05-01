@@ -241,16 +241,16 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                 companion_name = row.multiplesystem_resolved_in_this_table.split(':')[0]
 
                 companion_match = input_main[input_main.name == companion_name]
-                companion_row = companion_match.iloc[0] if not companion_match.empty else None
+                if not companion_match.empty:
+                    companion_row = companion_match.iloc[0]
+                    companion_dist, companion_dist_error, _ = get_distance(companion_row)
 
-                companion_dist, companion_dist_error, _ = get_distance(companion_row)
-
-                if (companion_dist is not None and dist_pc != companion_dist
-                    and abs(dist_pc - companion_dist) <= 3*np.sqrt(dist_error**2 + companion_dist_error**2)):
-                    dist_pc = ((dist_pc / dist_error**2 + companion_dist / companion_dist_error**2)
-                               / (1 / dist_error**2 + 1 / companion_dist_error**2))
-                    dist_error = 1 / np.sqrt(1 / dist_error**2 + 1 / companion_dist_error**2)
-                    dist_note += '; mean of system components'
+                    if (companion_dist is not None and dist_pc != companion_dist
+                        and abs(dist_pc - companion_dist) <= 3*np.sqrt(dist_error**2 + companion_dist_error**2)):
+                        dist_pc = ((dist_pc / dist_error**2 + companion_dist / companion_dist_error**2)
+                                / (1 / dist_error**2 + 1 / companion_dist_error**2))
+                        dist_error = 1 / np.sqrt(1 / dist_error**2 + 1 / companion_dist_error**2)
+                        dist_note += '; mean of system components'
 
             # Following Kirkpatrick et al. (2021), 2021ApJS..253....7K, if the parallax is known to
             # 12.5% or better, use the H-band absolute magnitude to calculate Teff
