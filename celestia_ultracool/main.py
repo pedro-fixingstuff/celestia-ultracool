@@ -19,17 +19,17 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
     input_main = pd.read_csv(data_dir / 'UltracoolSheet - Main.csv')
     input_properties = pd.read_csv(data_dir / 'UltracoolSheet - FundamentalProperties.csv')
 
-    input_suppl = pd.read_csv(data_dir / 'Supplemental_data.csv')
-    input_exclusions = pd.read_csv(data_dir / 'Exclusions.csv')
+    input_suppl = pd.read_csv(data_dir / 'Supplemental_data.csv', index_col='name')
+    input_exclusions = pd.read_csv(data_dir / 'Exclusions.csv', index_col='name')
 
     output = open(output_dir / 'ultracool.stc', 'w', encoding='utf-8')
     output.write(consts.HEADER)
 
     if write_multiples:
-        input_binaries = pd.read_csv(data_dir / 'UltracoolSheet - Binaries.csv')
-        input_triples = pd.read_csv(data_dir / 'UltracoolSheet - Triples+.csv')
+        input_binaries = pd.read_csv(data_dir / 'UltracoolSheet - Binaries.csv', index_col='name')
+        input_triples = pd.read_csv(data_dir / 'UltracoolSheet - Triples+.csv', index_col='name')
 
-        input_bin_suppl = pd.read_csv(data_dir / 'Binaries_supplemental_data.csv')
+        input_bin_suppl = pd.read_csv(data_dir / 'Binaries_supplemental_data.csv', index_col='name')
 
         output_bins = open(output_dir / 'ultracool_bins.stc', 'w', encoding='utf-8')
         output_bins.write(consts.HEADER_BINS)
@@ -40,9 +40,7 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
         if verbose:
             print('\nProcessing {}...'.format(row.name))
 
-        # Check if object is in the exclusion list
-        exclusion = input_exclusions[input_exclusions.name == row.name]
-        if len(exclusion) > 0:
+        if row.name in input_exclusions.index:
             if verbose:
                 print('Object in exclusion list, skipping.')
             continue
@@ -62,16 +60,18 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
 
         simbad_name = None
 
-        suppl_row = input_suppl[input_suppl.name == row.name]
-        has_suppl_data = len(suppl_row) != 0
+        try:
+            suppl_row = input_suppl.loc[row.name]
+        except KeyError:
+            suppl_row = None
 
         # Build name list
         names = [main_name]
 
         # Try to get the SIMBAD name from the supplemental table even if it's a "remove" value, thus
         # allowing the default SIMBAD name to be removed
-        if has_suppl_data and pd.notna(suppl_row['name_simbad'].item()):
-            simbad_name = parse_name(suppl_row['name_simbad'].item(), is_multiple)
+        if suppl_row is not None and pd.notna(suppl_row.name_simbad):
+            simbad_name = parse_name(suppl_row.name_simbad, is_multiple)
             if simbad_name != 'remove' and strip_name(simbad_name) != main_name_stripped:
                 names.append(simbad_name)
 
@@ -80,13 +80,13 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
         elif pd.notna(row.name_simbad):
             simbad_name = parse_name(row.name_simbad, is_multiple)
 
-            simbad_identifiers = row.identifiers_simbad.split('|')
+            simbad_identifiers = str(row.identifiers_simbad).split('|')
 
             bayer_flamsteed_designations = []
             variable_designation = None
             gj_designations = []
 
-            for identifier in [str(id_) for id_ in simbad_identifiers]:
+            for identifier in [id_ for id_ in simbad_identifiers]:
                 if identifier.startswith('* '):
                     bayer_flamsteed_designations.append(parse_name(identifier))
                 if identifier.startswith('V*') and not variable_designation:
@@ -111,8 +111,8 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
             if (strip_name(simbad_name).casefold() not in [strip_name(name).casefold() for name in names]):
                 names.append(simbad_name)
 
-        if has_suppl_data and pd.notna(suppl_row['aliases'].item()):
-            aliases = suppl_row['aliases'].item()
+        if suppl_row is not None and pd.notna(suppl_row.aliases):
+            aliases = suppl_row.aliases
             if aliases:
                 names += aliases.split(':')
 
@@ -147,16 +147,16 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
             # For companions that use their primary's coordinates, offset by their relative
             # astrometry (RA and dec. offsets, separation and position angle, or separation only)
             if row.astrom_Gaia == 'P':
-                if has_suppl_data:
+                if suppl_row is not None:
                     offset_coords = True
-                    if pd.notna(suppl_row['offset_ew'].item()):
-                        ra_epoch += suppl_row['offset_ew'].item() / np.cos(np.radians(dec_epoch)) / 3600
-                    if pd.notna(suppl_row['offset_ns'].item()):
-                        dec_epoch += suppl_row['offset_ns'].item() / 3600
+                    if pd.notna(suppl_row.offset_ew):
+                        ra_epoch += suppl_row.offset_ew / np.cos(np.radians(dec_epoch)) / 3600
+                    if pd.notna(suppl_row.offset_ns):
+                        dec_epoch += suppl_row.offset_ns / 3600
 
-                    elif pd.notna(suppl_row['sep'].item()):
-                        sep = suppl_row['sep'].item()
-                        pa = suppl_row['pa'].item()
+                    elif pd.notna(suppl_row.sep):
+                        sep = suppl_row.sep
+                        pa = suppl_row.pa
 
                         ra_epoch += sep * np.sin(np.radians(pa)) / np.cos(np.radians(dec_epoch)) / 3600
                         dec_epoch += sep * np.cos(np.radians(pa)) / 3600
@@ -186,9 +186,9 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
             epoch = 2000.0
 
         # Pick proper motions supplemental table or from non-rounded dataset-specific columns
-        if has_suppl_data and pd.notna(suppl_row['pmra'].item()):
-            pm_ra = suppl_row['pmra'].item()
-            pm_dec = suppl_row['pmdec'].item()
+        if suppl_row is not None and pd.notna(suppl_row.pmra):
+            pm_ra = suppl_row.pmra
+            pm_dec = suppl_row.pmdec
         if row.ref_pm_formula in ['Gaia21a', 'Gaia23']:
             pm_ra = row.pmra_Gaia
             pm_dec = row.pmdec_Gaia
@@ -221,17 +221,17 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
 
         use_abs_mag = False
         # Get parallax or distance from the supplemental or the main tables
-        if has_suppl_data and pd.notna(suppl_row['plx'].item()):
-            plx = suppl_row['plx'].item()
-            plx_error = suppl_row['plxerr'].item()
+        if suppl_row is not None and pd.notna(suppl_row.plx):
+            plx = suppl_row.plx
+            plx_error = suppl_row.plxerr
 
             use_abs_mag = plx_error / plx <= 0.125
 
             dist_pc = 1000 / plx
-            dist_note = 'from parallax ({})'.format(suppl_row['ref_plx'].item())
-        elif has_suppl_data and pd.notna(suppl_row['dist'].item()):
-            dist_pc = suppl_row['dist'].item()
-            dist_note = suppl_row['dist_notes'].item()
+            dist_note = 'from parallax ({})'.format(suppl_row.ref_plx)
+        elif suppl_row is not None and pd.notna(suppl_row.dist):
+            dist_pc = suppl_row.dist
+            dist_note = suppl_row.dist_notes
         else:
             dist_pc, dist_error, dist_note = get_distance(row)
 
@@ -240,7 +240,8 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
             if row.multiplesystem_resolved_in_this_table != 'N':
                 companion_name = row.multiplesystem_resolved_in_this_table.split(':')[0]
 
-                companion_row = next(input_main[input_main.name == companion_name].itertuples())
+                companion_match = input_main[input_main.name == companion_name]
+                companion_row = companion_match.iloc[0] if not companion_match.empty else None
 
                 companion_dist, companion_dist_error, _ = get_distance(companion_row)
 
@@ -264,10 +265,10 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
             dist = consts.PLACEHOLDER_DIST
 
         # Get spectral type (SpT) from the supplemental or the main table
-        if has_suppl_data and pd.notna(suppl_row['sptnum'].item()):
-            spt_num = suppl_row['sptnum'].item()
-            if pd.notna(suppl_row['ref_spt'].item()):
-                spt_note = suppl_row['ref_spt'].item()
+        if suppl_row is not None and pd.notna(suppl_row.sptnum):
+            spt_num = suppl_row.sptnum
+            if pd.notna(suppl_row.ref_spt):
+                spt_note = suppl_row.ref_spt
             else:
                 spt_note = None
         elif pd.notna(row.sptnum_formula):
@@ -279,8 +280,8 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
 
         is_subdwarf = spt_num < 0
 
-        if has_suppl_data and pd.notna(suppl_row['age'].item()):
-            age = suppl_row['age'].item()
+        if suppl_row is not None and pd.notna(suppl_row.age):
+            age = suppl_row.age
             age_category = None
         else:
             age = row.age_singlevalue_gyr_formula
@@ -310,35 +311,39 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
         process_as_single = True
         # Process binary system components
         if is_unresolved_multiple:
-            bin_suppl_row = input_bin_suppl[input_bin_suppl.name == row.name]
-            has_bin_suppl_data = len(bin_suppl_row) != 0
+            try:
+                bin_suppl_row = input_bin_suppl.loc[row.name]
+            except KeyError:
+                bin_suppl_row = None
 
-            bin_query = input_binaries[input_binaries.name == row.name]
-            if len(bin_query) > 0:
+            try:
+                bin_row = input_binaries.loc[row.name]
+            except KeyError:
+                bin_row = None
+
+            if bin_row is not None:
                 for _ in range(1):  # stop if no separation is found
                     process_as_single = False
-
-                    bin_row = next(bin_query.itertuples())
 
                     bin_ra_offset = 0.0
                     bin_dec_offset = 0.0
                     # Get coordinate offsets for the secondary
                     # Case 1: relative RA and dec. are given
-                    if has_bin_suppl_data and pd.notna(bin_suppl_row['offset_ew_bin'].item()):
-                        bin_ra_offset = bin_suppl_row['offset_ew_bin'].item() / np.cos(np.radians(dec)) / 3600000
-                        bin_dec_offset = bin_suppl_row['offset_ns_bin'].item() / 3600000
+                    if bin_suppl_row is not None and pd.notna(bin_suppl_row.offset_ew_bin):
+                        bin_ra_offset = bin_suppl_row.offset_ew_bin / np.cos(np.radians(dec)) / 3600000
+                        bin_dec_offset = bin_suppl_row.offset_ns_bin / 3600000
 
                     # Case 2: both separation and position angle are given
-                    elif has_bin_suppl_data and pd.notna(bin_suppl_row['pa_bin'].item()):
-                        sep = bin_suppl_row['sep_bin'].item()
-                        pa = bin_suppl_row['pa_bin'].item()
+                    elif bin_suppl_row is not None and pd.notna(bin_suppl_row.pa_bin):
+                        sep = bin_suppl_row.sep_bin
+                        pa = bin_suppl_row.pa_bin
 
                         bin_ra_offset = sep * np.sin(np.radians(pa)) / np.cos(np.radians(dec)) / 3600000
                         bin_dec_offset = sep * np.cos(np.radians(pa)) / 3600000
 
                     # Case 3: only separation is given
-                    elif has_bin_suppl_data and pd.notna(bin_suppl_row['sep_bin'].item()):
-                        bin_dec_offset = bin_suppl_row['sep_bin'].item() / 3600000
+                    elif bin_suppl_row is not None and pd.notna(bin_suppl_row.sep_bin):
+                        bin_dec_offset = bin_suppl_row.sep_bin / 3600000
                     elif pd.notna(bin_row.sep_bin):
                         bin_dec_offset = bin_row.sep_bin / 3600000
 
@@ -397,12 +402,12 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                     secondary.names = sec_names
 
                     # Get component spectral types
-                    if has_bin_suppl_data and pd.notna(bin_suppl_row['ref_spt'].item()):
-                        primary.spt_num = bin_suppl_row['sptnum_pri'].item()
-                        primary.spt_note = bin_suppl_row['ref_spt'].item()
+                    if bin_suppl_row is not None and pd.notna(bin_suppl_row.ref_spt):
+                        primary.spt_num = bin_suppl_row.sptnum_pri
+                        primary.spt_note = bin_suppl_row.ref_spt
 
-                        secondary.spt_num = bin_suppl_row['sptnum_sec'].item()
-                        secondary.spt_note = bin_suppl_row['ref_spt'].item()
+                        secondary.spt_num = bin_suppl_row.sptnum_sec
+                        secondary.spt_note = bin_suppl_row.ref_spt
                     else:
                         if pd.notna(bin_row.sptnum_pri):
                             primary.spt_num = bin_row.sptnum_pri
@@ -472,11 +477,13 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                     system.write(output_bins, is_subdwarf=is_subdwarf, offset_coords=offset_coords)
 
             # Process triple system components
-            triple_query = input_triples[input_triples.name == row.name]
-            if len(triple_query) > 0:
-                process_as_single = False
+            try:
+                triple_row = input_triples.loc[row.name]
+            except KeyError:
+                triple_row = None
 
-                triple_row = next(triple_query.itertuples())
+            if triple_row is not None:
+                process_as_single = False
 
                 primary = Dwarf(system)
                 secondary = Dwarf(system)
@@ -486,16 +493,16 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                 secondary.names = [name + ' B' for name in names]
 
                 # Get component spectral types
-                if has_bin_suppl_data and pd.notna(bin_suppl_row['sptnum_pri'].item()):
-                    primary.spt_num = bin_suppl_row['sptnum_pri'].item()
-                    primary.spt_note = bin_suppl_row['ref_spt'].item()
+                if bin_suppl_row is not None and pd.notna(bin_suppl_row.sptnum_pri):
+                    primary.spt_num = bin_suppl_row.sptnum_pri
+                    primary.spt_note = bin_suppl_row.ref_spt
                 else:
                     primary.spt_num = triple_row.sptnum_1
                     primary.spt_note = None
 
-                if has_bin_suppl_data and pd.notna(bin_suppl_row['sptnum_sec'].item()):
-                    secondary.spt_num = bin_suppl_row['sptnum_sec'].item()
-                    secondary.spt_note = bin_suppl_row['ref_spt'].item()
+                if bin_suppl_row is not None and pd.notna(bin_suppl_row.sptnum_sec):
+                    secondary.spt_num = bin_suppl_row.sptnum_sec
+                    secondary.spt_note = bin_suppl_row.ref_spt
                 else:
                     secondary.spt_num = triple_row.sptnum_2
                     secondary.spt_note = None
@@ -511,9 +518,9 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                 secondary.estimate_radius()
                 secondary.estimate_mass()
 
-                if has_bin_suppl_data and pd.notna(bin_suppl_row['pa_bin'].item()):
-                    sep = bin_suppl_row['sep_bin'].item()
-                    pa = bin_suppl_row['pa_bin'].item()
+                if bin_suppl_row is not None and pd.notna(bin_suppl_row.pa_bin):
+                    sep = bin_suppl_row.sep_bin
+                    pa = bin_suppl_row.pa_bin
 
                     bin_ra_offset = sep * np.sin(np.radians(pa)) / np.cos(np.radians(dec)) / 3600000
                     bin_dec_offset = sep * np.cos(np.radians(pa)) / 3600000
@@ -532,9 +539,9 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                     subsystem.names = [name + ' BC' for name in names]
                     tertiary.names = [name + ' C' for name in names]
 
-                    if has_bin_suppl_data and pd.notna(bin_suppl_row['sptnum_ter'].item()):
-                        tertiary.spt_num = bin_suppl_row['sptnum_ter'].item()
-                        tertiary.spt_note = bin_suppl_row['ref_spt'].item()
+                    if bin_suppl_row is not None and pd.notna(bin_suppl_row.sptnum_ter):
+                        tertiary.spt_num = bin_suppl_row.sptnum_ter
+                        tertiary.spt_note = bin_suppl_row.ref_spt
                     else:
                         tertiary.spt_num = triple_row.sptnum_3
                         tertiary.spt_note = None
@@ -545,9 +552,9 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                     tertiary.estimate_radius()
                     tertiary.estimate_mass()
 
-                    if has_bin_suppl_data and pd.notna(bin_suppl_row['pa_tri'].item()):
-                        sep = bin_suppl_row['sep_tri'].item()
-                        pa = bin_suppl_row['pa_tri'].item()
+                    if bin_suppl_row is not None and pd.notna(bin_suppl_row.pa_tri):
+                        sep = bin_suppl_row.sep_tri
+                        pa = bin_suppl_row.pa_tri
 
                         triple_ra_offset = sep * np.sin(np.radians(pa)) / np.cos(np.radians(dec)) / 3600000
                         triple_dec_offset = sep * np.cos(np.radians(pa)) / 3600000
@@ -582,11 +589,11 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
             dwarf.names = names + catalogs
 
             # Get physical parameters (radius and Teff) from table
-            properties_query = input_properties[
+            properties_match = input_properties[
                 (input_properties.name == row.name) | (input_properties.name_simbadable == row.name_simbadable)]
-            if len(properties_query) > 0:
-                properties_row = next(properties_query.itertuples())
+            properties_row = properties_match.iloc[0] if not properties_match.empty else None
 
+            if properties_row is not None:
                 lum = properties_row.log_lbol_lsun
 
                 # Objects with a gravity classification of FLD-G, for some reason, have
