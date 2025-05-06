@@ -19,20 +19,20 @@ def calculate_teff(lum: float, radius: float) -> tuple[float, str]:
 
 
 def parse_name(name: str, has_companion: bool=False) -> str:
-    """Apply tweaks to a designation."""
+    """Processes a designation to match the formats used by Celestia."""
     parsed_name = name
 
     # Remove SIMBAD-specific prefixes
     parsed_name = parsed_name.removeprefix('NAME').removeprefix('V*').removeprefix('EM*')
-    parsed_name = re.sub(r'^\*+', '', parsed_name)
+    parsed_name = re.sub(r'^\*++', '', parsed_name)
 
     # Trim extra spaces
     parsed_name = parsed_name.strip()
-    parsed_name = re.sub(r'\s+', ' ', parsed_name)
+    parsed_name = re.sub(r'\s++', ' ', parsed_name)
 
     # Separate component letters from the rest of the designation
     if has_companion:
-        parsed_name = re.sub(r'(?<=[0-9])[b-zA-D][a-zB-D]*$', r' \g<0>', parsed_name)
+        parsed_name = re.sub(r'(?<=\d)[b-zA-D][a-zB-D]*+$', r' \g<0>', parsed_name)
 
     # Abbreviate and capitalize Greek letters in Bayer designations
     parsed_name = re.sub(r'^alf', 'ALF', parsed_name)
@@ -48,10 +48,10 @@ def parse_name(name: str, has_companion: bool=False) -> str:
     # For objects with designations from the original Gliese catalog (1-915), write catalog name
     # in full
     parsed_name = re.sub(r'Gl ', 'Gliese ', parsed_name)
-    parsed_name = re.sub(r'GJ(?! [0-9]{4})', 'Gliese', parsed_name)
+    parsed_name = re.sub(r'GJ(?! \d{4})', 'Gliese', parsed_name)
 
     # Miscellaneous tweaks
-    parsed_name = re.sub(r'(?<= [0-9]{3}-)0+', '', parsed_name)
+    parsed_name = re.sub(r'(?<= \d{3}-)0++', '', parsed_name)
     parsed_name = re.sub(r'^[BC]D ', 'BD', parsed_name)
 
     return parsed_name
@@ -59,7 +59,7 @@ def parse_name(name: str, has_companion: bool=False) -> str:
 
 def strip_name(name: str) -> str:
     """Removes the component letter from a designation."""
-    return re.sub(r'(?<=\w)\s*[b-zA-D][a-zB-D]*$', '', name)
+    return re.sub(r'(?<=\w)\s*+[b-zA-D][a-zB-D]*+$', '', name)
 
 
 def get_distance(row: pd.Series) -> tuple[float, float, str]:

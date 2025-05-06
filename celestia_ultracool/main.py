@@ -80,30 +80,30 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
         elif pd.notna(row.name_simbad):
             simbad_name = parse_name(row.name_simbad, is_multiple)
 
-            simbad_identifiers = str(row.identifiers_simbad).split('|')
+            simbad_names = str(row.identifiers_simbad).split('|')
 
-            bayer_flamsteed_designations = []
-            variable_designation = None
-            gj_designations = []
+            bayer_flamsteed_names = []
+            variable_name = None
+            gj_names = []
 
-            for identifier in [id_ for id_ in simbad_identifiers]:
-                if identifier.startswith('* '):
-                    bayer_flamsteed_designations.append(parse_name(identifier))
-                if identifier.startswith('V*') and not variable_designation:
-                    variable_designation = parse_name(identifier)
-                if identifier.startswith('GJ'):
+            for name in simbad_names:
+                if name.startswith('* '):
+                    bayer_flamsteed_names.append(parse_name(name))
+                if name.startswith('V*') and not variable_name:
+                    variable_name = parse_name(name)
+                if name.startswith('GJ'):
                     # Check if two GJ designations are from different editions of the catalog
                     # (therefore having different IDs), as opposed to being the same, and referring
                     # to different components of a binary/multiple system
-                    if not gj_designations or strip_name(gj_designations[-1]) != strip_name(identifier):
-                        gj_designations.append(identifier)
+                    if not gj_names or strip_name(gj_names[-1]) != strip_name(name):
+                        gj_names.append(name)
 
-            gj_designations = [parse_name(gj) for gj in gj_designations]
+            gj_names = [parse_name(x) for x in gj_names]
 
-            names = gj_designations
-            if variable_designation is not None:
-                names.insert(0, variable_designation)
-            names = bayer_flamsteed_designations + names
+            names = bayer_flamsteed_names
+            if variable_name is not None:
+                names.append(variable_name)
+            names += gj_names
 
             if main_name_stripped not in [strip_name(name) for name in names]:
                 names.append(main_name)
@@ -300,7 +300,7 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
         # Build InfoURL from SIMBAD name or use the SIMPLE link if provided
         if pd.notna(row.name_simbadable):
             infourl = ('https://simbad.cds.unistra.fr/simbad/sim-id?Ident='
-                       + re.sub(r'\s+', '+', str(row.name_simbadable).replace('+', '%2B')))
+                       + re.sub(r'\s++', '+', str(row.name_simbadable).replace('+', '%2B')))
         elif pd.notna(row.url_simpleDB):
             infourl = row.url_simpleDB
         else:
