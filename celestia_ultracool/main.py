@@ -56,7 +56,6 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
             continue
 
         main_name = parse_name(row.name, is_multiple)
-        main_name_stripped = strip_name(main_name)
 
         simbad_name = None
 
@@ -72,7 +71,7 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
         # allowing the default SIMBAD name to be removed
         if suppl_row is not None and pd.notna(suppl_row.name_simbad):
             simbad_name = parse_name(suppl_row.name_simbad, is_multiple)
-            if simbad_name != 'remove' and strip_name(simbad_name) != main_name_stripped:
+            if simbad_name != 'remove' and strip_name(simbad_name) != strip_name(main_name):
                 names.append(simbad_name)
 
         # Otherwise, build the name list from scratch using the list of SIMBAD identifiers,
@@ -105,10 +104,10 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                 names.append(variable_name)
             names += gj_names
 
-            if main_name_stripped not in [strip_name(name) for name in names]:
+            if strip_name(main_name) not in [strip_name(name) for name in names]:
                 names.append(main_name)
 
-            if (strip_name(simbad_name).casefold() not in [strip_name(name).casefold() for name in names]):
+            if strip_name(simbad_name) not in [strip_name(name) for name in names]:
                 names.append(simbad_name)
 
         if suppl_row is not None and pd.notna(suppl_row.aliases):
@@ -164,6 +163,7 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                 elif pd.notna(row.sep_companion) and row.sep_companion:
                     offset_coords = True
                     dec_epoch += row.sep_companion / 3600
+
         elif row.source_j2000_formula == 'PS1':
             ra_epoch = row.ra_epoch_P1
             dec_epoch = row.dec_epoch_P1

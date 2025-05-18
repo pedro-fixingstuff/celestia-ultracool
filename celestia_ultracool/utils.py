@@ -20,10 +20,9 @@ def calculate_teff(lum: float, radius: float) -> tuple[float, str]:
 
 def parse_name(name: str, has_companion: bool=False) -> str:
     """Processes a designation to match the formats used by Celestia."""
-    parsed_name = name
 
     # Remove SIMBAD-specific prefixes
-    parsed_name = parsed_name.removeprefix('NAME').removeprefix('V*').removeprefix('EM*')
+    parsed_name = name.removeprefix('NAME').removeprefix('V*').removeprefix('EM*')
     parsed_name = re.sub(r'^\*++', '', parsed_name)
 
     # Trim extra spaces
@@ -50,16 +49,18 @@ def parse_name(name: str, has_companion: bool=False) -> str:
     parsed_name = re.sub(r'Gl ', 'Gliese ', parsed_name)
     parsed_name = re.sub(r'GJ(?! \d{4})', 'Gliese', parsed_name)
 
-    # Miscellaneous tweaks
-    parsed_name = re.sub(r'(?<= \d{3}-)0++', '', parsed_name)
+    # Remove extraneous zeros and spaces
+    parsed_name = re.sub(r'( \d{,3}-)0++', r'\g<1>', parsed_name)
     parsed_name = re.sub(r'^[BC]D ', 'BD', parsed_name)
 
     return parsed_name
 
 
 def strip_name(name: str) -> str:
-    """Removes the component letter from a designation."""
-    return re.sub(r'(?<=\w)\s*+[b-zA-D][a-zB-D]*+$', '', name)
+    """Removes non-alphanumeric characters and the component letter from a designation."""
+    stripped_name = re.sub(r'(?<=\w)\s*+[b-zA-D][a-zB-D]*+$', '', name)
+    stripped_name = re.sub(r'\W', '', stripped_name)
+    return stripped_name.casefold()
 
 
 def get_distance(row: pd.Series) -> tuple[float, float, str]:
