@@ -37,8 +37,7 @@ class System:
         stream.write('\nBarycenter "{}"'.format(':'.join(self.names)))
         stream.write('\n{')
         stream.write('\n\tRA {}'.format(round(self.ra, coord_decimal_digits)))
-        stream.write('\n\tDec {}'
-                     .format(round(self.dec, coord_decimal_digits)))
+        stream.write('\n\tDec {}'.format(round(self.dec, coord_decimal_digits)))
         if not is_component and offset_coords:
             stream.write(' # offset from primary coordinates')
         stream.write('\n\tDistance {:.5g}'.format(self.dist))

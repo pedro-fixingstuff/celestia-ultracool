@@ -247,8 +247,8 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
 
                     if (companion_dist is not None and dist_pc != companion_dist
                         and abs(dist_pc - companion_dist) <= 3*np.sqrt(dist_error**2 + companion_dist_error**2)):
-                        dist_pc = ((dist_pc / dist_error**2 + companion_dist / companion_dist_error**2)
-                                / (1 / dist_error**2 + 1 / companion_dist_error**2))
+                        dist_pc = np.average([dist_pc, companion_dist],
+                                             weights=[1 / dist_error**2, 1 / companion_dist_error**2])
                         dist_error = 1 / np.sqrt(1 / dist_error**2 + 1 / companion_dist_error**2)
                         dist_note += '; mean of system components'
 
