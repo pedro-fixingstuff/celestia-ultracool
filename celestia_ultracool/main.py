@@ -306,7 +306,8 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
         else:
             infourl = None
 
-        system = System(names, ra, dec, dist, spt_num, age, infourl, age_category, dist_note, spt_note)
+        system = System(names, ra, dec, dist, spt_num, age,
+                        infourl=infourl, age_category=age_category, dist_note=dist_note, spt_note=spt_note)
 
         process_as_single = True
         # Process binary system components
@@ -445,10 +446,10 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
 
                         if pd.notna(pri_appmag_h):
                             pri_h_mag = app_to_abs_mag(pri_appmag_h, dist_pc)
-                            primary.estimate_teff(pri_h_mag, subclass)
+                            primary.estimate_teff(h_mag=pri_h_mag, subclass=subclass)
                         if pd.notna(sec_appmag_h):
                             sec_h_mag = app_to_abs_mag(sec_appmag_h, dist_pc)
-                            secondary.estimate_teff(sec_h_mag, subclass)
+                            secondary.estimate_teff(h_mag=sec_h_mag, subclass=subclass)
 
                     if primary.teff is None:
                         primary.estimate_teff(subclass=subclass)
@@ -533,7 +534,8 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                 system.components.append(primary)
 
                 if pd.notna(triple_row.sep_32):
-                    subsystem = System(names, secondary.ra, secondary.dec, dist, secondary.spt_num, age, infourl, age_category)
+                    subsystem = System(names, secondary.ra, secondary.dec, dist, secondary.spt_num, age,
+                                       infourl=infourl, age_category=age_category)
                     tertiary = Dwarf(subsystem)
 
                     subsystem.names = [name + ' BC' for name in names]
@@ -611,9 +613,11 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
             # Otherwise, estimate Teff from empirical relations and use it to estimate parameters
             # from evolutionary models
             else:
-                # Calculate the H-band absolute magnitude (from 2MASS or MKO photometric systems) to
-                # estimate Teff. Unresolved systems are excluded, since they appear overluminous
-                # compared to single objects of the same spectral type
+                h_mag = 0.0
+                w2_mag = 0.0
+                # Calculate the H-band (from 2MASS or MKO photometric systems) and W2-band absolute
+                # magnitudes to estimate Teff. Unresolved systems are excluded, since they appear
+                # overluminous compared to single objects of the same spectral type
                 if use_abs_mag and not is_unresolved_multiple:
                     if pd.notna(row.Herr_MKO) and pd.notna(row.Herr_2MASS):
                         # Pick value with the lowest error
@@ -628,10 +632,11 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
 
                     if pd.notna(appmag_h):
                         h_mag = app_to_abs_mag(appmag_h, dist_pc)
-                        dwarf.estimate_teff(h_mag, subclass)
+                    if pd.notna(row.W2):
+                        w2_mag = app_to_abs_mag(row.W2, dist_pc)
 
                 if dwarf.teff is None:
-                    dwarf.estimate_teff(subclass=subclass)
+                    dwarf.estimate_teff(h_mag=h_mag, w2_mag=w2_mag, subclass=subclass)
                 dwarf.estimate_absmag()
                 dwarf.estimate_radius()
 

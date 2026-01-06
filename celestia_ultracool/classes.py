@@ -10,8 +10,8 @@ from . import consts, bhac15, cond03
 class System:
     """A system composed of one or two ultra-cool dwarfs, which can be combined with other
     subsystems to create higher-order hierarchies."""
-    def __init__(self, names: list[str], ra: float, dec: float, dist: float, spt_num: float,
-                 age: float, infourl: str=None, age_category: str=None, dist_note: str=None,
+    def __init__(self, names: list[str], ra: float, dec: float, dist: float, spt_num: float, age: float, *,
+                 infourl: str=None, age_category: str=None, dist_note: str=None,
                  spt_note: str=None) -> None:
         self.names = copy.deepcopy(names)
         self.ra = ra
@@ -29,7 +29,7 @@ class System:
         # The evolutionary model grids only go up to 10 Gyr, so clamp the object's age if it exceeds that
         self.log_age = min(np.log10(self.age), 1.0)
 
-    def write(self, stream: TextIO, is_component: bool=False, is_subdwarf: bool=False,
+    def write(self, stream: TextIO, *, is_component: bool=False, is_subdwarf: bool=False,
               coord_decimal_digits: int=7, offset_coords: bool=False) -> None:
         """Writes a Celestia STC definition for an ultra-cool dwarf binary/multiple system to a file
         stream."""
@@ -46,7 +46,7 @@ class System:
         stream.write('\n}\n')
 
         for component in self.components:
-            component.write(stream, True, is_subdwarf, coord_decimal_digits)
+            component.write(stream, is_component=True, is_subdwarf=is_subdwarf, coord_decimal_digits=coord_decimal_digits)
 
 
 class Dwarf:
@@ -68,7 +68,7 @@ class Dwarf:
         self.radius_note = None
         self.mass = None
 
-    def estimate_teff(self, h_mag: float=0.0, subclass: str='d') -> float:
+    def estimate_teff(self, *, h_mag: float=0.0, w2_mag: float=0.0, subclass: str='d') -> float:
         """Estimate temperature from empirical relations."""
 
         # SpT to Teff relation for subdwarfs from Zhang et al. (2018), 2018MNRAS.479.1383Z
@@ -98,6 +98,11 @@ class Dwarf:
             self.teff = (4563.13932 - 228.258451*self.spt_num - 11.1940923*self.spt_num**2
                          + 1.17847855*self.spt_num**3 - 0.0238265571*self.spt_num**4)
             self.teff_note = 'from spectral type (young)'
+
+        # M_W2 to Teff relation from Leggett et al. (2025), 2025ApJ...991..193L
+        elif 12.8 <= w2_mag <= 17.5:
+            self.teff = 258091 - 64036.1*w2_mag + 5979.92*w2_mag**2 - 248.49*w2_mag**3 + 3.87238*w2_mag**4
+            self.teff_note = 'from W2-band magnitude'
 
         # M_H to Teff relation from Kirkpatrick et al. (2021), 2021ApJS..253....7K
         elif 9.5 <= h_mag <= 25.0:
@@ -179,7 +184,7 @@ class Dwarf:
             else:
                 self.mass = 10 ** cond03.t_teff_m_interp(self.parent.log_age, log_teff)
 
-    def write(self, stream: TextIO, is_component: bool=False, is_subdwarf: bool=False,
+    def write(self, stream: TextIO, *, is_component: bool=False, is_subdwarf: bool=False,
               coord_decimal_digits: int=7, offset_coords: bool=False) -> None:
         """Writes a Celestia STC definition for an ultra-cool dwarf to a file stream."""
 
