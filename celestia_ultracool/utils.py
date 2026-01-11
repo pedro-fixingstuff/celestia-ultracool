@@ -4,18 +4,12 @@ import pandas as pd
 import re
 
 
-__all__ = ['app_to_abs_mag', 'calculate_teff', 'parse_name', 'strip_name',
-           'get_distance']
+__all__ = ['app_to_abs_mag', 'parse_name', 'strip_name', 'get_distance']
 
 
 def app_to_abs_mag(app_mag: float, dist: float) -> float:
     """Calculate absolute magnitude from apparent magnitude and distance."""
     return app_mag - 5*np.log10(dist/10)
-
-
-def calculate_teff(lum: float, radius: float) -> tuple[float, str]:
-    """Calculate temperature from luminosity and radius, using the Stefan-Boltzmann law."""
-    return (10**lum) ** (1/4) * (1/radius) ** (1/2) * 5772, 'from luminosity and radius'
 
 
 def parse_name(name: str, has_companion: bool=False) -> str:

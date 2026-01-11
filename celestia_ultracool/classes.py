@@ -5,19 +5,21 @@ import numpy as np
 from typing import TextIO
 
 from . import consts, bhac15, cond03
+from .utils import *
 
 
 class System:
     """A system composed of one or two ultra-cool dwarfs, which can be combined with other
     subsystems to create higher-order hierarchies."""
     def __init__(self, names: list[str], ra: float, dec: float, dist: float, spt_num: float, age: float, *,
-                 infourl: str=None, age_category: str=None, dist_note: str=None,
+                 subclass: str='d', infourl: str=None, age_category: str=None, dist_note: str=None,
                  spt_note: str=None) -> None:
         self.names = copy.deepcopy(names)
         self.ra = ra
         self.dec = dec
         self.dist = dist
         self.spt_num = abs(spt_num)
+        self.subclass = subclass
         self.infourl = infourl
         self.age = age
         self.age_category = age_category
@@ -60,81 +62,165 @@ class Dwarf:
         self.spt_num = parent.spt_num
         self.spt_note = parent.spt_note
 
+        self.mags = {}
+
+        self.lbol = None
         self.teff = None
         self.absmag = None
         self.radius = None
+        self.mass = None
         self.teff_note = None
         self.absmag_note = None
         self.radius_note = None
-        self.mass = None
+        self.properties_note = None
 
-    def estimate_teff(self, *, h_mag: float=0.0, w2_mag: float=0.0, subclass: str='d') -> float:
-        """Estimate temperature from empirical relations."""
+    def estimate_lbol_teff(self) -> None:
+        """Estimate luminosity or temperature from empirical relations."""
 
         # SpT to Teff relation for subdwarfs from Zhang et al. (2018), 2018MNRAS.479.1383Z
-        if subclass != 'd' and self.spt_num <= 17:
+        if self.parent.subclass != 'd' and self.spt_num <= 17:
             self.teff = 3701 - 108.6*self.spt_num + 1.855*self.spt_num**2 - 0.1661*self.spt_num**3
 
             # The temperature relation applies to [Fe/H] <~ 1.0, that is, esd and usd subclasses.
             # For the sd subclass, an average of the subdwarf and field SpT-Teff relations is taken
-            if subclass == 'sd':
-                field_teff = self.estimate_teff()
+            if self.parent.subclass == 'sd':
+                field_teff = float(np.interp(self.spt_num, consts.SPT_TEFF[0], consts.SPT_TEFF[1]))
                 self.teff = (self.teff + field_teff) / 2
-                self.teff_note = 'from spectral type (sd)'
+                self.properties_note = 'estimated from spectral type (sd)'
             else:
-                self.teff_note = 'from spectral type (esd/usd)'
+                self.properties_note = 'estimated from spectral type (esd/usd)'
 
-        elif (self.parent.age <= 0.01 and 1 < self.spt_num < 6) or (self.parent.age < 0.01 and 1 < self.spt_num < 10):
-            self.teff = float(np.interp(self.spt_num, consts.SPT_TEFF_YOUNG[0], consts.SPT_TEFF_YOUNG[1]))
-            self.teff_note = 'from spectral type (young, <~10 Myr)'
+        # Relations for young objects
+        elif self.parent.age <= 0.3:
+            if (self.parent.age <= 0.01 and 1 < self.spt_num < 6) or (self.parent.age < 0.01 and 1 < self.spt_num <= 9):
+                self.teff = float(np.interp(self.spt_num, consts.SPT_TEFF_YOUNG[0], consts.SPT_TEFF_YOUNG[1]))
+                self.properties_note = 'estimated from spectral type (young, <~10 Myr)'
 
-        # M_H to Teff relation (YNG) from Filippazzo et al. (2015), 2015ApJ...810..158F
-        elif self.parent.age <= 0.3 and 8.6 < h_mag < 14.5:
-            self.teff = -59770 + 23480*h_mag - 3215*h_mag**2 + 190.4*h_mag**3 - 4.167*h_mag**4
-            self.teff_note = 'from H-band magnitude (young)'
+            # Absolute magnitude to Lbol polynomials from Sanghi et al. (2023), 2023ApJ...959...63S
+            elif 7.7 <= self.mags.get('H_MKO', 0) <= 17.0:  # rms = 0.057 dex
+                self.lbol = 7.25956089e-1 - 3.88884874e-1*self.mags['H_MKO']
+                self.properties_note = 'estimated from MKO H-band (young)'
+            elif 7.3 <= self.mags.get('K_MKO', 0) <= 16.7:  # rms = 0.057 dex
+                self.lbol = (-2.06743904e1 + 7.40114284*self.mags['K_MKO'] - 1.03611814*self.mags['K_MKO']**2
+                             + 5.90347236e-2*self.mags['K_MKO']**3 - 1.21640941e-3*self.mags['K_MKO']**4)
+                self.properties_note = 'estimated from MKO K-band (young)'
+            elif 7.3 <= self.mags.get('Ks', 0) <= 16.8:  # rms = 0.057 dex
+                self.lbol = (-1.68245519e1 + 5.94124964*self.mags['Ks'] - 8.33426219e-1*self.mags['Ks']**2
+                             + 4.68755666e-2*self.mags['Ks']**3 - 9.51087115e-4*self.mags['Ks']**4)
+                self.properties_note = 'estimated from 2MASS Ks-band (young)'
+            elif 7.7 <= self.mags.get('H', 0) <= 17.0:  # rms = 0.072 dex
+                self.lbol = 6.58828628e-1 - 3.84611365e-1*self.mags['H']
+                self.properties_note = 'estimated from 2MASS H-band (young)'
+            elif 6.6 <= self.mags.get('W1', 0) <= 16.1:  # rms = 0.116 dex
+                self.lbol = (-3.70291470e+1 + 1.38286472e+1*self.mags['W1'] - 1.95883111*self.mags['W1']**2
+                             + 1.15867819e-1*self.mags['W1']**3 - 2.48769429e-3*self.mags['W1']**4)
+                self.properties_note = 'estimated from WISE W1-band (young)'
+            elif 11.0 <= self.mags.get('z', 0) <= 19.3:  # rms = 0.121 dex
+                self.lbol = 6.92111297e-1 - 2.88226403e-1*self.mags['z']
+                self.properties_note = 'estimated from PS1 z-band (young)'
+            elif 11.0 <= self.mags.get('W2', 0) <= 19.3:  # rms = 0.158 dex
+                self.lbol = 1.05360011 - 4.84834949e-1*self.mags['W2']
+                self.properties_note = 'estimated from WISE W2-band (young)'
+            # ML relations
+            elif self.spt_num < 20 and 8.2 <= self.mags.get('J_MKO', 0) <= 15.8:  # rms = 0.080 dex
+                self.lbol = 4.06864509e-1 - 3.36361777e-1*self.mags['J_MKO']
+                self.properties_note = 'estimated from MKO J-band (young)'
+            elif self.spt_num < 20 and 8.2 <= self.mags.get('J', 0) <= 15.8:  # rms = 0.081 dex
+                self.lbol = 4.08756088e-1 - 3.34689569e-1*self.mags['J']
+                self.properties_note = 'estimated from 2MASS J-band (young)'
+            elif self.spt_num < 20 and 10.3 <= self.mags.get('y', 0) <= 17.8:  # rms = 0.104 dex
+                self.lbol = 3.28920351e-1 - 2.80644117e-1*self.mags['y']
+                self.properties_note = 'estimated from PS1 y-band (young)'
+            # T relations
+            elif 20 <= self.spt_num < 30 and 16.5 <= self.mags.get('y', 0) <= 19.5:  # rms = 0.075 dex
+                self.lbol = 6.92111297e-1 - 2.88226403e-1*self.mags['y']
+                self.properties_note = 'estimated from PS1 y-band (young)'
+            elif 20 <= self.spt_num < 30 and 14.0 <= self.mags.get('J_MKO', 0) <= 16.7:  # rms = 0.097 dex
+                self.lbol = 8.31005313e-1 - 3.94047446e-1*self.mags['J_MKO']
+                self.properties_note = 'estimated from MKO J-band (young)'
+            elif 20 <= self.spt_num < 30 and 14.1 <= self.mags.get('J', 0) <= 16.7:  # rms = 0.108 dex
+                self.lbol = 9.53221827e-1 - 3.95259421e-1*self.mags['J']
+                self.properties_note = 'estimated from 2MASS J-band (young)'
 
-        # SpT to Teff relation for young objects from Sanghi et al. (2023), 2023ApJ...959...63S
-        elif self.parent.age <= 0.3 and 6.0 <= self.spt_num <= 28.0:
-            self.teff = (4563.13932 - 228.258451*self.spt_num - 11.1940923*self.spt_num**2
-                         + 1.17847855*self.spt_num**3 - 0.0238265571*self.spt_num**4)
-            self.teff_note = 'from spectral type (young)'
+            # SpT to Teff relation for young objects from Sanghi et al. (2023)
+            elif 6.0 <= self.spt_num <= 28.0:
+                self.teff = (4.56313932e3 - 2.28258451e2*self.spt_num - 1.11940923e1*self.spt_num**2
+                             + 1.17847855*self.spt_num**3 - 2.38265571e-2*self.spt_num**4)
+                self.properties_note = 'estimated from spectral type (young)'
 
-        # M_W2 to Teff relation from Leggett et al. (2025), 2025ApJ...991..193L
-        elif 12.8 <= w2_mag <= 17.5:
-            self.teff = 258091 - 64036.1*w2_mag + 5979.92*w2_mag**2 - 248.49*w2_mag**3 + 3.87238*w2_mag**4
-            self.teff_note = 'from W2-band magnitude'
+        # Field relations, also used for young objects if they span ranges not covered above
+        if self.lbol is None and self.teff is None:
+            # M_W2 to Teff relation from Leggett et al. (2025), 2025ApJ...991..193L
+            if 12.8 <= self.mags.get('W2', 0) <= 17.5:
+                self.teff = (258091 - 64036.1*self.mags['W2'] + 5979.92*self.mags['W2']**2
+                             - 248.49*self.mags['W2']**3 + 3.87238*self.mags['W2']**4)
+                self.properties_note = 'estimated from WISE W2-band'
 
-        # M_H to Teff relation from Kirkpatrick et al. (2021), 2021ApJS..253....7K
-        elif 9.5 <= h_mag <= 25.0:
-            self.teff = 12516 - 1566.6*h_mag + 67.502*h_mag**2 - 0.92430*h_mag**3 - 0.0019530*h_mag**4
-            self.teff_note = 'from H-band magnitude (field)'
+            # Absolute magnitude to Lbol polynomials from Sanghi et al. (2023)
+            elif 8.5 <= self.mags.get('H_MKO', 0) <= 18.8:  # rms = 0.053 dex
+                self.lbol = 6.17668495e-1 - 3.80907000e-1*self.mags['H_MKO']
+                self.properties_note = 'estimated from MKO H-band'
+            elif 8.1 <= self.mags.get('K_MKO', 0) <= 19.0:  # rms = 0.064 dex
+                self.lbol = (-8.68942422 + 3.17477734*self.mags['K_MKO'] - 4.83389959e-1*self.mags['K_MKO']**2
+                             + 2.73739037e-2*self.mags['K_MKO']**3 - 5.47040525e-4*self.mags['K_MKO']**4)
+                self.properties_note = 'estimated from MKO K-band'
+            elif 8.5 <= self.mags.get('H', 0) <= 18.1:  # rms = 0.066 dex
+                self.lbol = 6.93323688e-1 - 3.89636901e-1*self.mags['H']
+                self.properties_note = 'estimated from 2MASS H-band'
+            elif 11.0 <= self.mags.get('z', 0) <= 22.7:  # rms = 0.083 dex
+                self.lbol = 8.78235147e-1 - 3.06670163e-1*self.mags['z']
+                self.properties_note = 'estimated from PS1 z-band'
+            elif 7.3 <= self.mags.get('Ks', 0) <= 18.5:  # rms = 0.083 dex
+                self.lbol = (-2.50181488e1 + 8.16617507*self.mags['Ks'] - 1.04402978*self.mags['Ks']**2
+                             + 5.48196484e-2*self.mags['Ks']**3 - 1.04209064e-3*self.mags['Ks']**4)
+                self.properties_note = 'estimated from 2MASS Ks-band'
+            elif 7.6 <= self.mags.get('W1', 0) <= 17.1:  # rms = 0.103 dex
+                self.lbol = (-5.22934625e+1 + 1.85121627e+1*self.mags['W1'] - 2.47203555*self.mags['W1']**2
+                             + 1.39599009e-1*self.mags['W1']**3 - 2.87497133e-3*self.mags['W1']**4)
+                self.properties_note = 'estimated from WISE W1-band'
+            elif 7.3 <= self.mags.get('W2', 0) <= 14.1:  # rms = 0.125 dex
+                self.lbol = 1.75395276 - 5.42818335e-1*self.mags['W2']
+                self.properties_note = 'estimated from WISE W2-band'
+            # ML relations
+            elif self.spt_num < 20 and 9.0 <= self.mags.get('J_MKO', 0) <= 16.0:  # rms = 0.055 dex
+                self.lbol = 6.00343959e-1 - 3.57204309e-1*self.mags['J_MKO']
+                self.properties_note = 'estimated from MKO J-band'
+            elif self.spt_num < 20 and 9.1 <= self.mags.get('J', 0) <= 16.1:  # rms = 0.057 dex
+                self.lbol = 5.53301206e-1 - 3.51344336e-1*self.mags['J']
+                self.properties_note = 'estimated from 2MASS J-band'
+            elif self.spt_num < 20 and 10.5 <= self.mags.get('y', 0) <= 18.5:  # rms = 0.074 dex
+                self.lbol = 5.55740568e-1 - 3.03933139e-1*self.mags['y']
+                self.properties_note = 'estimated from PS1 y-band'
+            # T relations
+            elif 20 <= self.spt_num < 30 and 15.0 <= self.mags.get('y', 0) <= 21.0:  # rms = 0.066 dex
+                self.lbol = 1.37035364 - 3.66205917e-1*self.mags['y']
+                self.properties_note = 'estimated from PS1 y-band'
+            elif 20 <= self.spt_num < 30 and 12.8 <= self.mags.get('J', 0) <= 18.4:  # rms = 0.101 dex
+                self.lbol = 8.80328596e-1 - 3.93121219e-1*self.mags['J']
+                self.properties_note = 'estimated from 2MASS J-band'
+            elif 20 <= self.spt_num < 30 and 12.6 <= self.mags.get('J_MKO', 0) <= 18.4:  # rms = 0.108 dex
+                self.lbol = 9.54537740e-1 - 4.04863108e-1*self.mags['J_MKO']
+                self.properties_note = 'estimated from MKO J-band'
 
-        # Piecewise SpT to Teff relation from Kirkpatrick et al. (2021)
-        # While the paper states that it only is valid from type L0, it can be seen from both
-        # Table 14 and Figure 20 that it also applies to late-M dwarfs
-        elif 6.0 <= self.spt_num <= 32.0:
-            if self.spt_num < 18.75:
-                self.teff = 2237.5 - 144.96*(self.spt_num-10) + 4.0301*(self.spt_num-10)**2
-            elif 18.75 <= self.spt_num < 24.75:
-                self.teff = 1437.9 - 18.309*(self.spt_num-10)
+            # SpT to Lbol relation
+            elif 6.0 <= self.spt_num <= 29.0:
+                self.lbol = (2.38575339 - 2.34765187*self.spt_num + 4.10403429e-1*self.spt_num**2
+                             - 3.75870300e-2*self.spt_num**3 + 1.79418353e-3*self.spt_num**4
+                             - 4.22643837e-5*self.spt_num**5 + 3.85072198e-7*self.spt_num**6)
+                self.properties_note = 'estimated from spectral type'
+
             else:
-                self.teff = 5141.3 - 368.65*(self.spt_num-10) + 6.7301*(self.spt_num-10)**2
-            self.teff_note = 'from spectral type (field)'
+                self.teff = float(np.interp(self.spt_num, consts.SPT_TEFF[0], consts.SPT_TEFF[1]))
+                self.properties_note = 'estimated from spectral type'
 
-        else:
-            self.teff = float(np.interp(self.spt_num, consts.SPT_TEFF[0], consts.SPT_TEFF[1]))
-            self.teff_note = 'from spectral type'
-
-        return self.teff
-
-    def estimate_absmag(self, lum: float=None) -> None:
+    def estimate_absmag(self) -> None:
         """Estimate visual absolute magnitude from evolutionary model grids."""
-        if lum is not None:
-            if lum > bhac15.min_lum(self.parent.log_age):
-                self.absmag = float(bhac15.t_l_mv_interp(self.parent.log_age, lum))
+        if self.lbol is not None:
+            if self.lbol > bhac15.min_lum(self.parent.log_age):
+                self.absmag = float(bhac15.t_l_mv_interp(self.parent.log_age, self.lbol))
                 self.absmag_note = 'BHAC'
             else:
-                self.absmag = float(cond03.t_l_mv_interp(self.parent.log_age, lum))
+                self.absmag = float(cond03.t_l_mv_interp(self.parent.log_age, self.lbol))
                 self.absmag_note = 'COND'
         else:
             log_teff = np.log10(self.teff)
@@ -146,14 +232,14 @@ class Dwarf:
                 self.absmag = float(cond03.t_teff_mv_interp(self.parent.log_age, log_teff))
                 self.absmag_note = 'COND'
 
-    def estimate_radius(self, lum: float=None) -> None:
+    def estimate_radius(self) -> None:
         """Estimate radius from evolutionary model grids."""
-        if lum is not None:
-            if lum > bhac15.min_lum(self.parent.log_age):
-                log_radius = bhac15.t_l_r_interp(self.parent.log_age, lum)
+        if self.lbol is not None:
+            if self.lbol > bhac15.min_lum(self.parent.log_age):
+                log_radius = bhac15.t_l_r_interp(self.parent.log_age, self.lbol)
                 radius_note = 'BHAC'
             else:
-                log_radius = cond03.t_l_r_interp(self.parent.log_age, lum)
+                log_radius = cond03.t_l_r_interp(self.parent.log_age, self.lbol)
                 radius_note = 'COND'
             self.radius = 10 ** log_radius * consts.SOLAR_RADIUS
             self.radius_note = radius_note
@@ -169,13 +255,13 @@ class Dwarf:
             self.radius = 10 ** log_radius * consts.SOLAR_RADIUS
             self.radius_note = radius_note
 
-    def estimate_mass(self, lum: float=None) -> None:
+    def estimate_mass(self) -> None:
         """Estimate mass from evolutionary model grids."""
-        if lum is not None:
-            if lum > bhac15.min_lum(self.parent.log_age):
-                self.mass = 10 ** bhac15.t_l_m_interp(self.parent.log_age, lum)
+        if self.lbol is not None:
+            if self.lbol > bhac15.min_lum(self.parent.log_age):
+                self.mass = 10 ** bhac15.t_l_m_interp(self.parent.log_age, self.lbol)
             else:
-                self.mass = 10 ** cond03.t_l_m_interp(self.parent.log_age, lum)
+                self.mass = 10 ** cond03.t_l_m_interp(self.parent.log_age, self.lbol)
         else:
             log_teff = np.log10(self.teff)
 
@@ -183,6 +269,19 @@ class Dwarf:
                 self.mass = 10 ** bhac15.t_teff_m_interp(self.parent.log_age, log_teff)
             else:
                 self.mass = 10 ** cond03.t_teff_m_interp(self.parent.log_age, log_teff)
+
+    def estimate_properties(self):
+        """Estimate fundamental properties from empirical relations and evolutionary models."""
+        if self.lbol is None:
+            self.estimate_lbol_teff()
+        self.estimate_absmag()
+        if self.radius is None:
+            self.estimate_radius()
+            if self.teff is None:
+                # Stefan-Boltzmann law
+                self.teff = (10**self.lbol) ** (1/4) * (consts.SOLAR_RADIUS/self.radius) ** (1/2) * 5772
+        if self.mass is None:
+            self.estimate_mass()
 
     def write(self, stream: TextIO, *, is_component: bool=False, is_subdwarf: bool=False,
               coord_decimal_digits: int=7, offset_coords: bool=False) -> None:
@@ -210,6 +309,8 @@ class Dwarf:
         stream.write('\n\t# Assigned age: {} Gyr'.format(self.parent.age))
         if self.parent.age_category is not None:
             stream.write(' ({})'.format(self.parent.age_category))
+        if self.properties_note is not None:
+            stream.write('\n\t# Fundamental properties {}'.format(self.properties_note))
         stream.write('\n\tRA {}'.format(round(self.ra, coord_decimal_digits)))
         stream.write('\n\tDec {}'.format(round(self.dec, coord_decimal_digits)))
         if not is_component and offset_coords:

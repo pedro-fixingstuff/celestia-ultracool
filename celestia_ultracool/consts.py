@@ -40,23 +40,25 @@ HEADER = """# Catalog of ultra-cool dwarfs, based on the UltracoolSheet (https:/
 # main table and have distances that are divergent but consistent within 3-sigma use the mean of the
 # individual measurements.
 
-# Missing temperatures are estimated using the methods of Kirkpatrick et al. (2021), ApJS 253, 7 and
-# Leggett et al. (2025), ApJ 991, 193 for field dwarfs. For young objects (up to 300 Myr), the
-# relation from H-band absolute magnitude (from 2MASS or MKO systems) of Filippazzo et al. (2015),
-# ApJ 810, 158 is used, and if there's no parallax precise to within 12.5% to calculate an absolute
-# magnitude, the polynomial from Sanghi et al. (2023), ApJ 959, 63 is used. M dwarfs younger than 10
-# Myr (inclusive, for types earlier than M6) use the scale from Luhman et al. (2003), ApJ 593, 1093.
-# Subdwarfs (up to type L7) use the relation by Zhang et al. (2018), MNRAS 479, 1383; for objects of
-# the sd subclass, an average of the field and subdwarf relations is taken. For the cases which fall
-# outside the ranges of those relations, the field estimates are used, otherwise the scale from the
-# stellar properties table by Pecaut and Mamajek (2013)
-# (http://www.pas.rochester.edu/~emamajek/EEM_dwarf_UBVIJHK_colors_Teff.txt) is used.
-
-# Radii (if not provided in the fundamental properties table) and magnitudes are interpolated from
+# Temperatures and radii, if not provided in the fundamental properties table, are interpolated from
 # the BHAC15 (https://perso.ens-lyon.fr/isabelle.baraffe/BHAC15dir/) or COND03
 # (https://perso.ens-lyon.fr/isabelle.baraffe/COND03_models) isochrones by Baraffe et al., using age
-# and luminosity (if provided) or temperature. Objects with a gravity classification of FLD-G have
-# overestimated radii/underestimated temperatures given, so these have been recalculated.
+# and either luminosity or temperature, estimated from empirical relations. AbsMag is estimated the
+# same way. Objects with a gravity classification of FLD-G have overestimated radii/underestimated
+# temperatures given, so these have been recalculated.
+
+# The relations of Sanghi et al. (2023), ApJ 959, 63 are used to estimate the luminosity of field
+# dwarfs from absolute magnitude in different bands, if the parallax is precise to within 12.5%, or
+# from the spectral type. Young objects (up to 300 Myr) use the corresponding absolute-magnitude
+# relations, or the spectral type-temperature polynomial from that source. For cooler field dwarfs
+# (Teff <~ 1000 K), the relation from W2-band magnitude by Leggett et al. (2025), ApJ 991, 193 is
+# preferred. M dwarfs younger than 10 Myr (inclusive, for types earlier than M6) use the Teff scale
+# from Luhman et al. (2003), ApJ 593, 1093. Subdwarfs (up to type L7) use the Teff relation by Zhang
+# et al. (2018), MNRAS 479, 1383; for objects of the sd subclass, an average of the field and
+# subdwarf relations is taken. For the cases which fall outside the ranges of each of those
+# relations, the field estimates are used, otherwise the Teff scale from the stellar properties
+# table by Pecaut and Mamajek (2013)
+# (http://www.pas.rochester.edu/~emamajek/EEM_dwarf_UBVIJHK_colors_Teff.txt) is used.
 """
 
 HEADER_BINS = """# Ultra-cool-dwarf binaries/multiples, based on the UltracoolSheet:

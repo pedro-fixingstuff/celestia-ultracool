@@ -253,7 +253,7 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                         dist_note += '; mean of system components'
 
             # Following Kirkpatrick et al. (2021), 2021ApJS..253....7K, if the parallax is known to
-            # 12.5% or better, use the H-band absolute magnitude to calculate Teff
+            # 12.5% or better, use the absolute magnitude to calculate Lbol/Teff
             use_abs_mag = pd.notna(row.plx_formula) and dist_error / dist_pc <= 0.125
         if dist_pc is not None:
             if not write_10pc and dist_pc <= 10:
@@ -306,8 +306,8 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
         else:
             infourl = None
 
-        system = System(names, ra, dec, dist, spt_num, age,
-                        infourl=infourl, age_category=age_category, dist_note=dist_note, spt_note=spt_note)
+        system = System(names, ra, dec, dist, spt_num, age, subclass=subclass, infourl=infourl,
+                        age_category=age_category, dist_note=dist_note, spt_note=spt_note)
 
         process_as_single = True
         # Process binary system components
@@ -422,47 +422,30 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                         else:
                             secondary.spt_note = 'missing, combined spectral type used'
 
-                    # Calculate the H-band absolute magnitude for the components in order to try
-                    # estimating their Teff
+                    # Calculate the absolute magnitudes for the components in order to try
+                    # estimating their Lbol or Teff
                     if use_abs_mag:
-                        if pd.notna(bin_row.ref_H_MKO_bin_formula) and pd.notna(bin_row.ref_H_2MASS_bin_formula):
-                            # Pick values with the lowest errors
-                            if bin_row.Herr_MKO_pri_formula <= bin_row.Herr_2MASS_pri_formula:
-                                pri_appmag_h = bin_row.H_MKO_pri_formula
-                            else:
-                                pri_appmag_h = bin_row.H_2MASS_pri_formula
+                        if pd.notna(bin_row.DeltaJ_2MASS):
+                            primary.mags['J'] = app_to_abs_mag(bin_row.J_2MASS_pri_formula, dist_pc)
+                            secondary.mags['J'] = app_to_abs_mag(bin_row.J_2MASS_sec_formula, dist_pc)
+                        if pd.notna(bin_row.DeltaH_2MASS):
+                            primary.mags['H'] = app_to_abs_mag(bin_row.H_2MASS_pri_formula, dist_pc)
+                            secondary.mags['H'] = app_to_abs_mag(bin_row.H_2MASS_sec_formula, dist_pc)
+                        if pd.notna(bin_row.DeltaKs_2MASS):
+                            primary.mags['Ks'] = app_to_abs_mag(bin_row.Ks_2MASS_pri_formula, dist_pc)
+                            secondary.mags['Ks'] = app_to_abs_mag(bin_row.Ks_2MASS_sec_formula, dist_pc)
+                        if pd.notna(bin_row.DeltaJ_MKO):
+                            primary.mags['J_MKO'] = app_to_abs_mag(bin_row.J_MKO_pri_formula, dist_pc)
+                            secondary.mags['J_MKO'] = app_to_abs_mag(bin_row.J_MKO_sec_formula, dist_pc)
+                        if pd.notna(bin_row.DeltaH_MKO):
+                            primary.mags['H_MKO'] = app_to_abs_mag(bin_row.H_MKO_pri_formula, dist_pc)
+                            secondary.mags['H_MKO'] = app_to_abs_mag(bin_row.H_MKO_sec_formula, dist_pc)
+                        if pd.notna(bin_row.DeltaK_MKO):
+                            primary.mags['K_MKO'] = app_to_abs_mag(bin_row.K_MKO_pri_formula, dist_pc)
+                            secondary.mags['K_MKO'] = app_to_abs_mag(bin_row.K_MKO_sec_formula, dist_pc)
 
-                            if bin_row.Herr_MKO_sec_formula <= bin_row.Herr_2MASS_sec_formula:
-                                sec_appmag_h = bin_row.H_MKO_sec_formula
-                            else:
-                                sec_appmag_h = bin_row.H_2MASS_sec_formula
-
-                        elif pd.notna(bin_row.H_MKO_pri_formula):
-                            pri_appmag_h = bin_row.H_MKO_pri_formula
-                            sec_appmag_h = bin_row.H_MKO_sec_formula
-                        else:
-                            pri_appmag_h = bin_row.H_2MASS_pri_formula
-                            sec_appmag_h = bin_row.H_2MASS_sec_formula
-
-                        if pd.notna(pri_appmag_h):
-                            pri_h_mag = app_to_abs_mag(pri_appmag_h, dist_pc)
-                            primary.estimate_teff(h_mag=pri_h_mag, subclass=subclass)
-                        if pd.notna(sec_appmag_h):
-                            sec_h_mag = app_to_abs_mag(sec_appmag_h, dist_pc)
-                            secondary.estimate_teff(h_mag=sec_h_mag, subclass=subclass)
-
-                    if primary.teff is None:
-                        primary.estimate_teff(subclass=subclass)
-                    if secondary.teff is None:
-                        secondary.estimate_teff(subclass=subclass)
-
-                    primary.estimate_absmag()
-                    primary.estimate_radius()
-                    primary.estimate_mass()
-
-                    secondary.estimate_absmag()
-                    secondary.estimate_radius()
-                    secondary.estimate_mass()
+                    primary.estimate_properties()
+                    secondary.estimate_properties()
 
                     # Calculate secondary and barycenter positions from system coordinates (taken to
                     # be those of the primary) and relative astrometry, as well as mass ratio for
@@ -508,16 +491,8 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                     secondary.spt_num = triple_row.sptnum_2
                     secondary.spt_note = None
 
-                primary.estimate_teff()
-                secondary.estimate_teff()
-
-                primary.estimate_absmag()
-                primary.estimate_radius()
-                primary.estimate_mass()
-
-                secondary.estimate_absmag()
-                secondary.estimate_radius()
-                secondary.estimate_mass()
+                primary.estimate_properties()
+                secondary.estimate_properties()
 
                 if bin_suppl_row is not None and pd.notna(bin_suppl_row.pa_bin):
                     sep = bin_suppl_row.sep_bin
@@ -548,11 +523,7 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                         tertiary.spt_num = triple_row.sptnum_3
                         tertiary.spt_note = None
 
-                    tertiary.estimate_teff()
-
-                    tertiary.estimate_absmag()
-                    tertiary.estimate_radius()
-                    tertiary.estimate_mass()
+                    tertiary.estimate_properties()
 
                     if bin_suppl_row is not None and pd.notna(bin_suppl_row.pa_tri):
                         sep = bin_suppl_row.sep_tri
@@ -596,49 +567,44 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
             properties_row = properties_match.iloc[0] if not properties_match.empty else None
 
             if properties_row is not None:
-                lum = properties_row.log_lbol_lsun
+                dwarf.lbol = properties_row.log_lbol_lsun
 
                 # Objects with a gravity classification of FLD-G, for some reason, have
                 # overestimated radii and underestimated temperatures, so their parameters are
                 # recalculated
                 if properties_row.age_category in ['FLD-G', 'FLD-G?']:
-                    dwarf.estimate_radius(lum)
-                    dwarf.teff, dwarf.teff_note = calculate_teff(lum, dwarf.radius / consts.SOLAR_RADIUS)
+                    dwarf.properties_note = 'recalculated from measured Lbol'
                 else:
                     dwarf.teff = properties_row.teff_evo
                     dwarf.radius = properties_row.radius_evo * consts.JUPITER_RADIUS
 
-                dwarf.estimate_absmag(lum)
+            # Otherwise, estimate parameters from empirical relations and evolutionary models
+            elif use_abs_mag and not is_unresolved_multiple:
+                # Calculate the absolute magnitudes to estimate Lbol or Teff. Unresolved systems are
+                # excluded, since they appear overluminous compared to single objects of the same
+                # spectral type
+                if pd.notna(row.J_2MASS):
+                    dwarf.mags['J'] = app_to_abs_mag(row.J_2MASS, dist_pc)
+                if pd.notna(row.H_2MASS):
+                    dwarf.mags['H'] = app_to_abs_mag(row.H_2MASS, dist_pc)
+                if pd.notna(row.Ks_2MASS):
+                    dwarf.mags['Ks'] = app_to_abs_mag(row.Ks_2MASS, dist_pc)
+                if pd.notna(row.J_MKO):
+                    dwarf.mags['J_MKO'] = app_to_abs_mag(row.J_MKO, dist_pc)
+                if pd.notna(row.H_MKO):
+                    dwarf.mags['H_MKO'] = app_to_abs_mag(row.H_MKO, dist_pc)
+                if pd.notna(row.K_MKO):
+                    dwarf.mags['K_MKO'] = app_to_abs_mag(row.K_MKO, dist_pc)
+                if pd.notna(row.z_P1):
+                    dwarf.mags['z'] = app_to_abs_mag(row.z_P1, dist_pc)
+                if pd.notna(row.y_P1):
+                    dwarf.mags['y'] = app_to_abs_mag(row.y_P1, dist_pc)
+                if pd.notna(row.W1):
+                    dwarf.mags['W1'] = app_to_abs_mag(row.W1, dist_pc)
+                if pd.notna(row.W2):
+                    dwarf.mags['W2'] = app_to_abs_mag(row.W2, dist_pc)
 
-            # Otherwise, estimate Teff from empirical relations and use it to estimate parameters
-            # from evolutionary models
-            else:
-                h_mag = 0.0
-                w2_mag = 0.0
-                # Calculate the H-band (from 2MASS or MKO photometric systems) and W2-band absolute
-                # magnitudes to estimate Teff. Unresolved systems are excluded, since they appear
-                # overluminous compared to single objects of the same spectral type
-                if use_abs_mag and not is_unresolved_multiple:
-                    if pd.notna(row.Herr_MKO) and pd.notna(row.Herr_2MASS):
-                        # Pick value with the lowest error
-                        if row.Herr_MKO <= row.Herr_2MASS:
-                            appmag_h = row.H_MKO
-                        else:
-                            appmag_h = row.H_2MASS
-                    elif pd.notna(row.H_MKO):
-                        appmag_h = row.H_MKO
-                    else:
-                        appmag_h = row.H_2MASS
-
-                    if pd.notna(appmag_h):
-                        h_mag = app_to_abs_mag(appmag_h, dist_pc)
-                    if pd.notna(row.W2):
-                        w2_mag = app_to_abs_mag(row.W2, dist_pc)
-
-                if dwarf.teff is None:
-                    dwarf.estimate_teff(h_mag=h_mag, w2_mag=w2_mag, subclass=subclass)
-                dwarf.estimate_absmag()
-                dwarf.estimate_radius()
+            dwarf.estimate_properties()
 
             dwarf.write(output, is_subdwarf=is_subdwarf, coord_decimal_digits=coord_decimal_digits, offset_coords=offset_coords)
 
