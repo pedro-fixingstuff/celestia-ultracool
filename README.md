@@ -80,8 +80,8 @@ This work has made use of the SIMBAD database, operated at CDS, Strasbourg, Fran
 
 ### Empirical relations
 
-- Filippazzo et al. (2015), ApJ 810, 158. ["Fundamental Parameters and Spectral Energy Distributions of Young and Field Age Objects with Masses Spanning the Stellar to Planetary Regime"](https://ui.adsabs.harvard.edu/abs/2015ApJ...810..158F)
 - Kirkpatrick et al. (2021), ApJS 253, 7. ["The Field Substellar Mass Function Based on the Full-sky 20 pc Census of 525 L, T, and Y Dwarfs"](https://ui.adsabs.harvard.edu/abs/2021ApJS..253....7K)
+- Leggett et al. (2025), ApJ 991, 193. ["Exploration of the Near-infrared Colors of Cold Y Dwarfs from the Ground and Space"](https://ui.adsabs.harvard.edu/abs/2025ApJ...991..193L)
 - Luhman et al. (2003), ApJ 593, p. 1093-1115. ["A Census of the Young Cluster IC 348"](https://ui.adsabs.harvard.edu/abs/2003ApJ...593.1093L)
 - Pecaut and Mamajek (2013), ApJS 208, 9. ["Intrinsic Colors, Temperatures, and Bolometric Corrections of Pre-main-sequence Stars"](https://ui.adsabs.harvard.edu/abs/2013ApJS..208....9P) ([link to data](https://www.pas.rochester.edu/~emamajek/EEM_dwarf_UBVIJHK_colors_Teff.txt))
 - Sanghi et al. (2023), ApJ 959, 63. ["The Hawaii Infrared Parallax Program. VI. The Fundamental Properties of 1000+ Ultracool Dwarfs and Planetary-mass Objects Using Optical to Mid-infrared Spectral Energy Distributions and Comparison to BT-Settl and ATMO 2020 Model Atmospheres"](https://ui.adsabs.harvard.edu/abs/2023ApJ...959...63S)
