@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 
 from . import consts
-from .classes import System, Dwarf
+from .classes import EvoInterpolator, UltracoolSystem, UltracoolDwarf
 from .utils import *
 
 
@@ -33,6 +33,8 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
 
         output_bins = open(output_dir / 'ultracool_bins.stc', 'w', encoding='utf-8')
         output_bins.write(consts.HEADER_BINS)
+
+    interp = EvoInterpolator()
 
     processed_count = 0
 
@@ -306,8 +308,8 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
         else:
             infourl = None
 
-        system = System(names, ra, dec, dist, spt_num, age, subclass=subclass, infourl=infourl,
-                        age_category=age_category, dist_note=dist_note, spt_note=spt_note)
+        system = UltracoolSystem(names, ra, dec, dist, spt_num, age, subclass=subclass, infourl=infourl,
+                                 age_category=age_category, dist_note=dist_note, spt_note=spt_note)
 
         process_as_single = True
         # Process binary system components
@@ -353,8 +355,8 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                         process_as_single = True
                         break
 
-                    primary = Dwarf(system)
-                    secondary = Dwarf(system)
+                    primary = UltracoolDwarf(system)
+                    secondary = UltracoolDwarf(system)
 
                     # Use just "A" or "B" rather than "Aab" or "Bab" for barycenters
                     bin_designation = str(bin_row.designation_binary).replace('ab', '')
@@ -444,8 +446,8 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                             primary.mags['K_MKO'] = app_to_abs_mag(bin_row.K_MKO_pri_formula, dist_pc)
                             secondary.mags['K_MKO'] = app_to_abs_mag(bin_row.K_MKO_sec_formula, dist_pc)
 
-                    primary.estimate_properties()
-                    secondary.estimate_properties()
+                    primary.estimate_properties(interp)
+                    secondary.estimate_properties(interp)
 
                     # Calculate secondary and barycenter positions from system coordinates (taken to
                     # be those of the primary) and relative astrometry, as well as mass ratio for
@@ -469,8 +471,8 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
             if triple_row is not None:
                 process_as_single = False
 
-                primary = Dwarf(system)
-                secondary = Dwarf(system)
+                primary = UltracoolDwarf(system)
+                secondary = UltracoolDwarf(system)
 
                 system.names += catalogs
                 primary.names = [name + ' A' for name in names]
@@ -491,8 +493,8 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                     secondary.spt_num = triple_row.sptnum_2
                     secondary.spt_note = None
 
-                primary.estimate_properties()
-                secondary.estimate_properties()
+                primary.estimate_properties(interp)
+                secondary.estimate_properties(interp)
 
                 if bin_suppl_row is not None and pd.notna(bin_suppl_row.pa_bin):
                     sep = bin_suppl_row.sep_bin
@@ -509,9 +511,9 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                 system.components.append(primary)
 
                 if pd.notna(triple_row.sep_32):
-                    subsystem = System(names, secondary.ra, secondary.dec, dist, secondary.spt_num, age,
-                                       infourl=infourl, age_category=age_category)
-                    tertiary = Dwarf(subsystem)
+                    subsystem = UltracoolSystem(names, secondary.ra, secondary.dec, dist, secondary.spt_num, age,
+                                                infourl=infourl, age_category=age_category)
+                    tertiary = UltracoolDwarf(subsystem)
 
                     subsystem.names = [name + ' BC' for name in names]
                     tertiary.names = [name + ' C' for name in names]
@@ -523,7 +525,7 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                         tertiary.spt_num = triple_row.sptnum_3
                         tertiary.spt_note = None
 
-                    tertiary.estimate_properties()
+                    tertiary.estimate_properties(interp)
 
                     if bin_suppl_row is not None and pd.notna(bin_suppl_row.pa_tri):
                         sep = bin_suppl_row.sep_tri
@@ -558,7 +560,7 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                 system.write(output_bins, is_subdwarf=is_subdwarf, offset_coords=offset_coords)
 
         if process_as_single:
-            dwarf = Dwarf(system)
+            dwarf = UltracoolDwarf(system)
             dwarf.names = names + catalogs
 
             # Get physical parameters (radius and Teff) from table
@@ -604,7 +606,7 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                 if pd.notna(row.W2):
                     dwarf.mags['W2'] = app_to_abs_mag(row.W2, dist_pc)
 
-            dwarf.estimate_properties()
+            dwarf.estimate_properties(interp)
 
             dwarf.write(output, is_subdwarf=is_subdwarf, coord_decimal_digits=coord_decimal_digits, offset_coords=offset_coords)
 

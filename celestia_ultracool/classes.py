@@ -4,11 +4,65 @@ import copy
 import numpy as np
 from typing import TextIO
 
-from . import consts, bhac15, cond03
+from . import consts
+from .bhac15 import BhacInterpolator
+from .cond03 import CondInterpolator
 from .utils import *
 
 
-class System:
+class EvoInterpolator:
+    """Interpolate physical properties from different evolutionary models."""
+    def __init__(self):
+        self.bhac_interp = BhacInterpolator()
+        self.cond_interp = CondInterpolator()
+
+    def interpolate_absmag(self, log_age: float, lbol: float, teff: float) -> tuple[float, str]:
+        """Interpolate visual absolute magnitude from evolutionary model grids."""
+        if lbol is not None:
+            if lbol > self.bhac_interp.min_lum(log_age):
+                return self.bhac_interp.interpolate_t_l_mv(log_age, lbol), 'BHAC'
+            else:
+                return self.cond_interp.interpolate_t_l_mv(log_age, lbol), 'COND'
+        else:
+            log_teff = np.log10(teff)
+
+            if teff > self.bhac_interp.min_teff(log_age):
+                return self.bhac_interp.interpolate_t_teff_mv(log_age, log_teff), 'BHAC'
+            else:
+                return self.cond_interp.interpolate_t_teff_mv(log_age, log_teff), 'COND'
+
+    def interpolate_radius(self, log_age: float, lbol: float, teff: float) -> tuple[float, str]:
+        """Interpolate radius from evolutionary model grids."""
+        if lbol is not None:
+            if lbol > self.bhac_interp.min_lum(log_age):
+                return self.bhac_interp.interpolate_t_l_r(log_age, lbol) * consts.SOLAR_RADIUS, 'BHAC'
+            else:
+                return self.cond_interp.interpolate_t_l_r(log_age, lbol) * consts.SOLAR_RADIUS, 'COND'
+        else:
+            log_teff = np.log10(teff)
+
+            if teff > self.bhac_interp.min_teff(log_age):
+                return self.bhac_interp.interpolate_t_teff_r(log_age, log_teff) * consts.SOLAR_RADIUS, 'BHAC'
+            else:
+                return self.cond_interp.interpolate_t_teff_r(log_age, log_teff) * consts.SOLAR_RADIUS, 'COND'
+
+    def interpolate_mass(self, log_age: float, lbol: float, teff: float) -> float:
+        """Interpolate mass from evolutionary model grids."""
+        if lbol is not None:
+            if lbol > self.bhac_interp.min_lum(log_age):
+                return self.bhac_interp.interpolate_t_l_m(log_age, lbol)
+            else:
+                return self.cond_interp.interpolate_t_l_m(log_age, lbol)
+        else:
+            log_teff = np.log10(teff)
+
+            if teff > self.bhac_interp.min_teff(log_age):
+                return self.bhac_interp.interpolate_t_teff_m(log_age, log_teff)
+            else:
+                return self.cond_interp.interpolate_t_teff_m(log_age, log_teff)
+
+
+class UltracoolSystem:
     """A system composed of one or two ultra-cool dwarfs, which can be combined with other
     subsystems to create higher-order hierarchies."""
     def __init__(self, names: list[str], ra: float, dec: float, dist: float, spt_num: float, age: float, *,
@@ -51,9 +105,9 @@ class System:
             component.write(stream, is_component=True, is_subdwarf=is_subdwarf, coord_decimal_digits=coord_decimal_digits)
 
 
-class Dwarf:
+class UltracoolDwarf:
     """An ultra-cool dwarf."""
-    def __init__(self, parent: System=None) -> None:
+    def __init__(self, parent: UltracoolSystem=None) -> None:
         self.parent = parent
 
         self.names = []
@@ -213,75 +267,18 @@ class Dwarf:
                 self.teff = float(np.interp(self.spt_num, consts.SPT_TEFF[0], consts.SPT_TEFF[1]))
                 self.properties_note = 'estimated from spectral type'
 
-    def estimate_absmag(self) -> None:
-        """Estimate visual absolute magnitude from evolutionary model grids."""
-        if self.lbol is not None:
-            if self.lbol > bhac15.min_lum(self.parent.log_age):
-                self.absmag = float(bhac15.t_l_mv_interp(self.parent.log_age, self.lbol))
-                self.absmag_note = 'BHAC'
-            else:
-                self.absmag = float(cond03.t_l_mv_interp(self.parent.log_age, self.lbol))
-                self.absmag_note = 'COND'
-        else:
-            log_teff = np.log10(self.teff)
-
-            if self.teff > bhac15.min_teff(self.parent.log_age):
-                self.absmag = float(bhac15.t_teff_mv_interp(self.parent.log_age, log_teff))
-                self.absmag_note = 'BHAC'
-            else:
-                self.absmag = float(cond03.t_teff_mv_interp(self.parent.log_age, log_teff))
-                self.absmag_note = 'COND'
-
-    def estimate_radius(self) -> None:
-        """Estimate radius from evolutionary model grids."""
-        if self.lbol is not None:
-            if self.lbol > bhac15.min_lum(self.parent.log_age):
-                log_radius = bhac15.t_l_r_interp(self.parent.log_age, self.lbol)
-                radius_note = 'BHAC'
-            else:
-                log_radius = cond03.t_l_r_interp(self.parent.log_age, self.lbol)
-                radius_note = 'COND'
-            self.radius = 10 ** log_radius * consts.SOLAR_RADIUS
-            self.radius_note = radius_note
-        else:
-            log_teff = np.log10(self.teff)
-
-            if self.teff > bhac15.min_teff(self.parent.log_age):
-                log_radius = bhac15.t_teff_r_interp(self.parent.log_age, log_teff)
-                radius_note = 'BHAC'
-            else:
-                log_radius = cond03.t_teff_r_interp(self.parent.log_age, log_teff)
-                radius_note = 'COND'
-            self.radius = 10 ** log_radius * consts.SOLAR_RADIUS
-            self.radius_note = radius_note
-
-    def estimate_mass(self) -> None:
-        """Estimate mass from evolutionary model grids."""
-        if self.lbol is not None:
-            if self.lbol > bhac15.min_lum(self.parent.log_age):
-                self.mass = 10 ** bhac15.t_l_m_interp(self.parent.log_age, self.lbol)
-            else:
-                self.mass = 10 ** cond03.t_l_m_interp(self.parent.log_age, self.lbol)
-        else:
-            log_teff = np.log10(self.teff)
-
-            if self.teff > bhac15.min_teff(self.parent.log_age):
-                self.mass = 10 ** bhac15.t_teff_m_interp(self.parent.log_age, log_teff)
-            else:
-                self.mass = 10 ** cond03.t_teff_m_interp(self.parent.log_age, log_teff)
-
-    def estimate_properties(self):
+    def estimate_properties(self, interp: EvoInterpolator):
         """Estimate fundamental properties from empirical relations and evolutionary models."""
         if self.lbol is None:
             self.estimate_lbol_teff()
-        self.estimate_absmag()
+        self.absmag, self.absmag_note = interp.interpolate_absmag(self.parent.log_age, self.lbol, self.teff)
         if self.radius is None:
-            self.estimate_radius()
+            self.radius, self.radius_note = interp.interpolate_radius(self.parent.log_age, self.lbol, self.teff)
             if self.teff is None:
                 # Stefan-Boltzmann law
                 self.teff = (10**self.lbol) ** (1/4) * (consts.SOLAR_RADIUS/self.radius) ** (1/2) * 5772
         if self.mass is None:
-            self.estimate_mass()
+            self.mass = interp.interpolate_mass(self.parent.log_age, self.lbol, self.teff)
 
     def write(self, stream: TextIO, *, is_component: bool=False, is_subdwarf: bool=False,
               coord_decimal_digits: int=7, offset_coords: bool=False) -> None:
