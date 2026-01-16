@@ -18,10 +18,9 @@ SPT_TEFF = ((
         1255, 1240, 1220, 1200, 1180, 1170, 1160, 1040, 950, 825, 750, 680, 600, 560, 510, 450, 400,
         360, 325, 320, 250))
 
-# SpT-Teff scale for ~1 Myr old stars in IC 348 and Taurus (M1-M9) from Table 8
-# of Luhman et al. (2003), 2003ApJ...593.1093L
-SPT_TEFF_YOUNG = ((1, 2, 3, 4, 5, 6, 7, 8, 9),
-                  (3705, 3560, 3415, 3270, 3125, 2990, 2880, 2710, 2400))
+# SpT-Teff scale for M-type T Tauri stars from Herczeg and Hillenbrand (2014), 2014ApJ...786...97H
+SPT_TEFF_YOUNG = ((0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
+                  (3900, 3720, 3560, 3410, 3190, 2980, 2860, 2770, 2670, 2570))
 
 # Mean solar and Jovian radii
 SOLAR_RADIUS = 695700.0
@@ -52,12 +51,11 @@ HEADER = """# Catalog of ultra-cool dwarfs, based on the UltracoolSheet (https:/
 # from the spectral type. Young objects (up to 300 Myr) use the corresponding absolute-magnitude
 # relations, or the spectral type-temperature polynomial from that source. For cooler field dwarfs
 # (Teff <~ 1000 K), the relation from W2-band magnitude by Leggett et al. (2025), ApJ 991, 193 is
-# preferred. M dwarfs younger than 10 Myr (inclusive, for types earlier than M6) use the Teff scale
-# from Luhman et al. (2003), ApJ 593, 1093. Subdwarfs (up to type L7) use the Teff relation by Zhang
-# et al. (2018), MNRAS 479, 1383; for objects of the sd subclass, an average of the field and
-# subdwarf relations is taken. For the cases which fall outside the ranges of each of those
-# relations, the field estimates are used, otherwise the Teff scale from the stellar properties
-# table by Pecaut and Mamajek (2013)
+# preferred. M dwarfs up to 10 Myr use the Teff scale from Herczeg and Hillenbrand (2014), ApJ 786,
+# 97. Subdwarfs (up to type L7) use the Teff relation by Zhang et al. (2018), MNRAS 479, 1383; for
+# objects of the sd subclass, an average of the field and subdwarf relations is taken. For the cases
+# which fall outside the ranges of each of those relations, the field estimates are used, otherwise
+# the Teff scale from the stellar properties table by Pecaut and Mamajek (2013)
 # (http://www.pas.rochester.edu/~emamajek/EEM_dwarf_UBVIJHK_colors_Teff.txt) is used.
 """
 

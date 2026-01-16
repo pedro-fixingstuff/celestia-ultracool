@@ -146,7 +146,7 @@ class UltracoolDwarf:
 
         # Relations for young objects
         elif self.parent.age <= 0.3:
-            if (self.parent.age <= 0.01 and 1 < self.spt_num < 6) or (self.parent.age < 0.01 and 1 < self.spt_num <= 9):
+            if (self.parent.age <= 0.01 and self.spt_num <= 9):
                 self.teff = float(np.interp(self.spt_num, consts.SPT_TEFF_YOUNG[0], consts.SPT_TEFF_YOUNG[1]))
                 self.properties_note = 'estimated from spectral type (young, <~10 Myr)'
 
