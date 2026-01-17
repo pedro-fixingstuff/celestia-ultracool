@@ -5,8 +5,10 @@ import pandas as pd
 from pathlib import Path
 import re
 
+from .orbitconvert import ElementsConverter
+
 from . import consts
-from .classes import EvoInterpolator, UltracoolSystem, UltracoolDwarf
+from .classes import EvoInterpolator, Orbit, UltracoolSystem, UltracoolDwarf
 from .utils import *
 
 
@@ -30,6 +32,7 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
         input_triples = pd.read_csv(data_dir / 'UltracoolSheet - Triples+.csv', index_col='name')
 
         input_bin_suppl = pd.read_csv(data_dir / 'Binaries_supplemental_data.csv', index_col='name')
+        input_orbits = pd.read_csv(data_dir / 'Orbits.csv', index_col='name')
 
         output_bins = open(output_dir / 'ultracool_bins.stc', 'w', encoding='utf-8')
         output_bins.write(consts.HEADER_BINS)
@@ -330,30 +333,54 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
 
                     bin_ra_offset = 0.0
                     bin_dec_offset = 0.0
-                    # Get coordinate offsets for the secondary
-                    # Case 1: relative RA and dec. are given
-                    if bin_suppl_row is not None and pd.notna(bin_suppl_row.offset_ew_bin):
-                        bin_ra_offset = bin_suppl_row.offset_ew_bin / np.cos(np.radians(dec)) / 3600000
-                        bin_dec_offset = bin_suppl_row.offset_ns_bin / 3600000
 
-                    # Case 2: both separation and position angle are given
-                    elif bin_suppl_row is not None and pd.notna(bin_suppl_row.pa_bin):
-                        sep = bin_suppl_row.sep_bin
-                        pa = bin_suppl_row.pa_bin
+                    # Get orbit data
+                    try:
+                        orbit_row = input_orbits.loc[row.name]
+                    except KeyError:
+                        orbit_row = None
 
-                        bin_ra_offset = sep * np.sin(np.radians(pa)) / np.cos(np.radians(dec)) / 3600000
-                        bin_dec_offset = sep * np.cos(np.radians(pa)) / 3600000
+                    if orbit_row is not None:
+                        period =  orbit_row.period
+                        sma = dist_pc * orbit_row.sma / 1000
+                        ecc = orbit_row.ecc
+                        t_peri = orbit_row.tperi
 
-                    # Case 3: only separation is given
-                    elif bin_suppl_row is not None and pd.notna(bin_suppl_row.sep_bin):
-                        bin_dec_offset = bin_suppl_row.sep_bin / 3600000
-                    elif pd.notna(bin_row.sep_bin):
-                        bin_dec_offset = bin_row.sep_bin / 3600000
+                        inc = orbit_row.inc
+                        node = orbit_row.node
+                        arg_peri = orbit_row.argperi
+                        
+                        ec = ElementsConverter(ra, dec)
+                        arg_peri, inc, node = ec.convert(arg_peri, inc, node)
 
+                        system.orbit = Orbit(period, sma, ecc, inc, node, arg_peri, t_peri)
+
+                    # Treat the system as two objects with fixed positions
                     else:
-                        output.write('\n# Binary/multiple, missing separation')
-                        process_as_single = True
-                        break
+                        # Get coordinate offsets for the secondary
+                        # Case 1: relative RA and dec. are given
+                        if bin_suppl_row is not None and pd.notna(bin_suppl_row.offset_ew_bin):
+                            bin_ra_offset = bin_suppl_row.offset_ew_bin / np.cos(np.radians(dec)) / 3600000
+                            bin_dec_offset = bin_suppl_row.offset_ns_bin / 3600000
+
+                        # Case 2: both separation and position angle are given
+                        elif bin_suppl_row is not None and pd.notna(bin_suppl_row.pa_bin):
+                            sep = bin_suppl_row.sep_bin
+                            pa = bin_suppl_row.pa_bin
+
+                            bin_ra_offset = sep * np.sin(np.radians(pa)) / np.cos(np.radians(dec)) / 3600000
+                            bin_dec_offset = sep * np.cos(np.radians(pa)) / 3600000
+
+                        # Case 3: only separation is given
+                        elif bin_suppl_row is not None and pd.notna(bin_suppl_row.sep_bin):
+                            bin_dec_offset = bin_suppl_row.sep_bin / 3600000
+                        elif pd.notna(bin_row.sep_bin):
+                            bin_dec_offset = bin_row.sep_bin / 3600000
+
+                        else:
+                            output.write('\n# Binary/multiple, missing separation')
+                            process_as_single = True
+                            break
 
                     primary = UltracoolDwarf(system)
                     secondary = UltracoolDwarf(system)
@@ -366,8 +393,6 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                     sec_designation = bin_row.designation_binary[:-2] + bin_row.designation_binary[-1]
 
                     bary_names = []
-                    pri_names = []
-                    sec_names = []
                     for name in names:
                         name = name.removesuffix(bin_row.designation_binary).removesuffix(bin_designation)
                         # Some primaries of wide (that is, resolved in the main table) binaries are
@@ -397,12 +422,10 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                             pri_name = name + ' ' + pri_designation
                             sec_name = name + ' ' + sec_designation
 
-                        pri_names.append(pri_name)
-                        sec_names.append(sec_name)
+                        primary.names.append(pri_name)
+                        secondary.names.append(sec_name)
 
                     system.names = bary_names + catalogs
-                    primary.names = pri_names
-                    secondary.names = sec_names
 
                     # Get component spectral types
                     if bin_suppl_row is not None and pd.notna(bin_suppl_row.ref_spt):
@@ -414,15 +437,21 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                     else:
                         if pd.notna(bin_row.sptnum_pri):
                             primary.spt_num = bin_row.sptnum_pri
-                            primary.spt_note = None
                         else:
                             primary.spt_note = 'missing, combined spectral type used'
 
                         if pd.notna(bin_row.sptnum_sec):
                             secondary.spt_num = bin_row.sptnum_sec
-                            secondary.spt_note = None
                         else:
                             secondary.spt_note = 'missing, combined spectral type used'
+
+                    # Get masses, if measured
+                    if orbit_row is not None:
+                        # Only the ratio is relevant here, so no unit conversion is done
+                        if pd.notna(orbit_row.mass_pri):
+                            primary.mass = orbit_row.mass_pri
+                        if pd.notna(orbit_row.mass_sec):
+                            secondary.mass = orbit_row.mass_sec
 
                     # Calculate the absolute magnitudes for the components in order to try
                     # estimating their Lbol or Teff
@@ -452,10 +481,11 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                     # Calculate secondary and barycenter positions from system coordinates (taken to
                     # be those of the primary) and relative astrometry, as well as mass ratio for
                     # the barycenter
-                    secondary.ra += bin_ra_offset
-                    secondary.dec += bin_dec_offset
-                    system.ra += bin_ra_offset / (1 + primary.mass / secondary.mass)
-                    system.dec += bin_dec_offset / (1 + primary.mass / secondary.mass)
+                    if system.orbit is None:
+                        secondary.ra += bin_ra_offset
+                        secondary.dec += bin_dec_offset
+                        system.ra += bin_ra_offset / (1 + primary.mass / secondary.mass)
+                        system.dec += bin_dec_offset / (1 + primary.mass / secondary.mass)
 
                     system.components.append(primary)
                     system.components.append(secondary)
@@ -484,14 +514,12 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                     primary.spt_note = bin_suppl_row.ref_spt
                 else:
                     primary.spt_num = triple_row.sptnum_1
-                    primary.spt_note = None
 
                 if bin_suppl_row is not None and pd.notna(bin_suppl_row.sptnum_sec):
                     secondary.spt_num = bin_suppl_row.sptnum_sec
                     secondary.spt_note = bin_suppl_row.ref_spt
                 else:
                     secondary.spt_num = triple_row.sptnum_2
-                    secondary.spt_note = None
 
                 primary.estimate_properties(interp)
                 secondary.estimate_properties(interp)
@@ -523,7 +551,6 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                         tertiary.spt_note = bin_suppl_row.ref_spt
                     else:
                         tertiary.spt_num = triple_row.sptnum_3
-                        tertiary.spt_note = None
 
                     tertiary.estimate_properties(interp)
 

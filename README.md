@@ -71,6 +71,8 @@ This work has benefitted from The UltracoolSheet at http://bit.ly/UltracoolSheet
 
 This work has made use of the SIMBAD database, operated at CDS, Strasbourg, France ([Wenger et al. 2000](https://ui.adsabs.harvard.edu/abs/2000A%26AS..143....9W)).
 
+The code for conversion between plane-of-sky and ecliptic orbital elements (`orbitconvert.py`) is from Andrew Tribick (ajtribick).
+
 ## References
 
 ### Evolutionary model grids

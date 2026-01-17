@@ -1,0 +1,2 @@
+name,period,perioderr,periodunit,sma,smaerr,smaunit,ecc,eccerr,inc,incerr,node,nodeerr,argperi,argperierr,tperi,tperierr,tperiunit,mass_pri,masserr_pri,mass_sec,masserr_sec,massunit,ref
+LP 349-25,7.698,0.014,y,145.99,0.175,mas,0.0468,0.00185,117.36,0.105,36.64,0.1,262.2,1.8,2457758,14.5,JD,85,4,80,3,Mjup,2017ApJS..231...15D

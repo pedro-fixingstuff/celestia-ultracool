@@ -62,25 +62,39 @@ class EvoInterpolator:
                 return self.cond_interp.interpolate_t_teff_m(log_age, log_teff)
 
 
+class Orbit:
+    """A Keplerian orbit of a binary system"""
+    def __init__(self, period: float, sma: float, ecc: float, inc: float, node: float, arg_peri: float, t_peri: float):
+        self.period = period
+        self.sma = sma
+        self.ecc = ecc
+        self.inc = inc
+        self.node = node
+        self.arg_peri = arg_peri
+        self.t_peri = t_peri
+
+
 class UltracoolSystem:
     """A system composed of one or two ultra-cool dwarfs, which can be combined with other
     subsystems to create higher-order hierarchies."""
     def __init__(self, names: list[str], ra: float, dec: float, dist: float, spt_num: float, age: float, *,
-                 subclass: str='d', infourl: str=None, age_category: str=None, dist_note: str=None,
-                 spt_note: str=None) -> None:
+                 subclass: str='d', infourl: str=None, age_category: str=None, dist_note: str=None, spt_note: str=None,
+                 components: list['UltracoolDwarf'] | list['UltracoolSystem']=None, orbit: Orbit=None) -> None:
         self.names = copy.deepcopy(names)
         self.ra = ra
         self.dec = dec
         self.dist = dist
         self.spt_num = abs(spt_num)
+        self.age = age
         self.subclass = subclass
         self.infourl = infourl
-        self.age = age
         self.age_category = age_category
         self.dist_note = dist_note
         self.spt_note = spt_note
 
-        self.components = []
+        self.components = [] if components is None else components
+
+        self.orbit = orbit
 
         # The evolutionary model grids only go up to 10 Gyr, so clamp the object's age if it exceeds that
         self.log_age = min(np.log10(self.age), 1.0)
@@ -107,7 +121,9 @@ class UltracoolSystem:
 
 class UltracoolDwarf:
     """An ultra-cool dwarf."""
-    def __init__(self, parent: UltracoolSystem=None) -> None:
+    def __init__(self, parent: UltracoolSystem=None, mags: dict[str, float]=None,
+                 lbol: float=None, teff: float=None, absmag: float=None, radius: float=None, mass: float=None,
+                 teff_note: str=None, absmag_note: str=None, radius_note: str=None, properties_note: str=None) -> None:
         self.parent = parent
 
         self.names = []
@@ -116,17 +132,17 @@ class UltracoolDwarf:
         self.spt_num = parent.spt_num
         self.spt_note = parent.spt_note
 
-        self.mags = {}
+        self.mags = {} if mags is None else mags
 
-        self.lbol = None
-        self.teff = None
-        self.absmag = None
-        self.radius = None
-        self.mass = None
-        self.teff_note = None
-        self.absmag_note = None
-        self.radius_note = None
-        self.properties_note = None
+        self.lbol = lbol
+        self.teff = teff
+        self.absmag = absmag
+        self.radius = radius
+        self.mass = mass
+        self.teff_note = teff_note
+        self.absmag_note = absmag_note
+        self.radius_note = radius_note
+        self.properties_note = properties_note
 
     def estimate_lbol_teff(self) -> None:
         """Estimate luminosity or temperature from empirical relations."""
@@ -308,13 +324,18 @@ class UltracoolDwarf:
             stream.write(' ({})'.format(self.parent.age_category))
         if self.properties_note is not None:
             stream.write('\n\t# Fundamental properties {}'.format(self.properties_note))
-        stream.write('\n\tRA {}'.format(round(self.ra, coord_decimal_digits)))
-        stream.write('\n\tDec {}'.format(round(self.dec, coord_decimal_digits)))
-        if not is_component and offset_coords:
-            stream.write(' # offset from primary coordinates')
-        stream.write('\n\tDistance {:.5g}'.format(self.parent.dist))
-        if not is_component and self.parent.dist_note is not None:
-            stream.write(' # ' + self.parent.dist_note)
+
+        if self.parent.orbit is None:
+            stream.write('\n\tRA {}'.format(round(self.ra, coord_decimal_digits)))
+            stream.write('\n\tDec {}'.format(round(self.dec, coord_decimal_digits)))
+            if not is_component and offset_coords:
+                stream.write(' # offset from primary coordinates')
+            stream.write('\n\tDistance {:.5g}'.format(self.parent.dist))
+            if not is_component and self.parent.dist_note is not None:
+                stream.write(' # ' + self.parent.dist_note)
+        else:
+            stream.write('\n\tOrbitBarycenter "{}"'.format(self.parent.names[0]))
+
         stream.write('\n\tSpectralType "{}"'.format(spt))
         if self.spt_note is not None:
             stream.write(' # ' + self.spt_note)
@@ -327,6 +348,37 @@ class UltracoolDwarf:
         stream.write('\n\tRadius {}'.format(round(self.radius)))
         if self.radius_note is not None:
             stream.write(' # ' + self.radius_note)
+
+        if self.parent.orbit is not None:
+            index = self.parent.components.index(self)
+
+            orbit = self.parent.orbit
+
+            # Semi-major axis and argument of pericenter change depending on the component
+            if index == 0:  # primary
+                pri_mass = self.mass
+                sec_mass = self.parent.components[1].mass
+                sma = orbit.sma / (1 + pri_mass / sec_mass)
+
+                arg_peri = (orbit.arg_peri + 180) % 360
+            else:  # secondary
+                pri_mass = self.parent.components[0].mass
+                sec_mass = self.mass
+                sma = orbit.sma / (1 + sec_mass / pri_mass)
+
+                arg_peri = orbit.arg_peri
+
+            stream.write('\n\tEllipticalOrbit\n\t{')
+            stream.write('\n\t\tEpoch {}'.format(orbit.t_peri))
+            stream.write('\n\t\tPeriod {}'.format(round(orbit.period, 6)))
+            stream.write('\n\t\tSemiMajorAxis {}'.format(round(sma, 3)))
+            stream.write(' # mass ratio {}J:{}J'.format(pri_mass, sec_mass))
+            stream.write('\n\t\tEccentricity {}'.format(orbit.ecc))
+            stream.write('\n\t\tInclination {}'.format(round(orbit.inc, 3)))
+            stream.write('\n\t\tAscendingNode {}'.format(round(orbit.node, 3)))
+            stream.write('\n\t\tArgOfPericenter {}'.format(round(arg_peri, 3)))
+            stream.write('\n\t}')
+
         if self.parent.infourl is not None:
             stream.write('\n\tInfoURL "{}"'.format(self.parent.infourl))
         stream.write('\n}\n')
