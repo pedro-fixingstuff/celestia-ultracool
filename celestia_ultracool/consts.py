@@ -22,10 +22,18 @@ SPT_TEFF = ((
 SPT_TEFF_YOUNG = ((0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
                   (3900, 3720, 3560, 3410, 3190, 2980, 2860, 2770, 2670, 2570))
 
+J2000 = 2451545.0
+
 # Mean solar and Jovian radii
 SOLAR_RADIUS = 695700.0
 JUPITER_RADIUS = 69911.0
 
+SOLAR_TEFF = 5772
+
+# Mass conversion factor
+MSUN_TO_MJUP = 1.3271244e20 / 1.2668653e17
+
+YEAR_TO_DAY = 365.25
 PC_TO_LY = 3.261563777
 
 HEADER = """# Catalog of ultra-cool dwarfs, based on the UltracoolSheet (https://zenodo.org/records/10573247)
@@ -62,12 +70,16 @@ HEADER = """# Catalog of ultra-cool dwarfs, based on the UltracoolSheet (https:/
 HEADER_BINS = """# Ultra-cool-dwarf binaries/multiples, based on the UltracoolSheet:
 # https://zenodo.org/records/10573247
 
-# System coordinates from the main table and supplementary sources are taken as those of the primary
-# components, with the secondary positions being calculated from the separation and position angle,
-# or from RA and declination offsets, sourced from the notes column of the main table or the
-# literature.
+# Orbits are taken from the literature, unless there is no information on the masses or spectral
+# types of the components. Published masses are used if they're directly measured (e.g. from orbital
+# dynamics) or informed by some measured quantity, such as the system total mass or mass ratio.
+
+# Systems without orbits take the coordinates from the main table and supplementary sources as those
+# of the primary components, with the secondary positions being calculated from the separation and
+# position angle, or from RA and declination offsets, sourced from the notes column of the main
+# table or the literature.
 
 # Magnitudes and radii are interpolated from the BHAC15 or COND03 isochrones the same way as for the
-# main catalog. Masses are also estimated this way, and they were used for estimating the barycenter
-# positions.
+# main catalog. Missing masses are also estimated this way, and they were used for estimating the
+# barycenter positions.
 """

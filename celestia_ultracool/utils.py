@@ -3,12 +3,17 @@ import numpy as np
 import pandas as pd
 import re
 
+from .orbitconvert import ElementsConverter
 
-__all__ = ['app_to_abs_mag', 'parse_name', 'strip_name', 'get_distance']
+from . import consts
+from .classes import Orbit
+
+
+__all__ = ['app_to_abs_mag', 'parse_name', 'strip_name', 'get_distance', 'build_orbit']
 
 
 def app_to_abs_mag(app_mag: float, dist: float) -> float:
-    """Calculate absolute magnitude from apparent magnitude and distance."""
+    """Calculates absolute magnitude from apparent magnitude and distance."""
     return app_mag - 5*np.log10(dist/10)
 
 
@@ -58,7 +63,7 @@ def strip_name(name: str) -> str:
 
 
 def get_distance(row: pd.Series) -> tuple[float, float, str]:
-    """Get non-rounded distance and error from dataset-specific columns."""
+    """Gets non-rounded distance and error from dataset-specific columns."""
     if row.dist_formula_source == 'dist_plx_formula':
         if row.ref_plx_formula in ['Gaia21a', 'Gaia23']:
             plx = row.plx_Gaia
@@ -88,3 +93,48 @@ def get_distance(row: pd.Series) -> tuple[float, float, str]:
         dist_note = 'missing ({})'.format(row.dist_formula_source)
 
     return dist, dist_error, dist_note
+
+
+def build_orbit(row: pd.Series, ra: float, dec: float, dist: float) -> Orbit:
+    """Builds an orbit definition from Keplerian elements, making the necessary conversions."""
+    orbit = Orbit()
+
+    if row.periodunit == 'd':
+        orbit.period = row.period / consts.YEAR_TO_DAY
+    else:
+        orbit.period = row.period
+
+    if pd.notna(row.sma):
+        orbit.sma = row.sma
+
+        if row.smaunit == 'mas':
+            orbit.sma *= dist / 1000
+    elif pd.notna(row.a1):
+        orbit.sma_1 = row.a1 * dist / 1000
+
+    if pd.notna(row.ecc):
+        orbit.ecc = row.ecc
+
+    if pd.notna(row.inc):
+        ec = ElementsConverter(ra, dec)
+
+        arg_peri = (row.argperi + 180) % 360  # for correct radial velocities
+
+        if pd.notna(row.node):
+            node = (row.node + 180) % 360  # for correct radial velocities
+            orbit.arg_peri, orbit.inc, orbit.node = ec.convert(arg_peri, row.inc, node)
+        else:
+            orbit.arg_peri, orbit.inc, orbit.node = ec.convert(arg_peri, row.inc)
+
+    if pd.notna(row.tperi):
+        orbit.epoch = row.tperi
+
+        if row.tperiunit == 'MJD':
+            orbit.epoch += 2400000.5
+        elif row.tperiunit == 'J':
+            orbit.epoch = (orbit.epoch - 2000) * consts.YEAR_TO_DAY + consts.J2000
+
+        if pd.notna(row.meananomaly):
+            orbit.mean_anomaly = row.meananomaly
+
+    return orbit

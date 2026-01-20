@@ -5,10 +5,8 @@ import pandas as pd
 from pathlib import Path
 import re
 
-from .orbitconvert import ElementsConverter
-
 from . import consts
-from .classes import EvoInterpolator, Orbit, UltracoolSystem, UltracoolDwarf
+from .classes import EvoInterpolator, UltracoolSystem, UltracoolDwarf
 from .utils import *
 
 
@@ -19,7 +17,7 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
     output_dir = home / 'output'
 
     input_main = pd.read_csv(data_dir / 'UltracoolSheet - Main.csv')
-    input_properties = pd.read_csv(data_dir / 'UltracoolSheet - FundamentalProperties.csv')
+    input_properties = pd.read_csv(data_dir / 'UltracoolSheet - FundamentalProperties.csv', index_col='name')
 
     input_suppl = pd.read_csv(data_dir / 'Supplemental_data.csv', index_col='name')
     input_exclusions = pd.read_csv(data_dir / 'Exclusions.csv', index_col='name')
@@ -173,7 +171,7 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
             ra_epoch = row.ra_epoch_P1
             dec_epoch = row.dec_epoch_P1
             coord_decimal_digits = 4
-            epoch = 2000 + (row.epoch_mjd_P1-51544.5) / 365.25
+            epoch = 2000 + (row.epoch_mjd_P1-51544.5) / consts.YEAR_TO_DAY
         elif row.source_j2000_formula == 'CatWISE':
             ra_epoch = row.ra_epoch_WISE
             dec_epoch = row.dec_epoch_WISE
@@ -327,60 +325,48 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
             except KeyError:
                 bin_row = None
 
+            # Get orbit data
+            try:
+                orbit_row = input_orbits.loc[row.name]
+            except KeyError:
+                orbit_row = None
+
             if bin_row is not None:
                 for _ in range(1):  # stop if no separation is found
                     process_as_single = False
 
                     bin_ra_offset = 0.0
                     bin_dec_offset = 0.0
-
-                    # Get orbit data
-                    try:
-                        orbit_row = input_orbits.loc[row.name]
-                    except KeyError:
-                        orbit_row = None
-
+                    
                     if orbit_row is not None:
-                        period =  orbit_row.period
-                        sma = dist_pc * orbit_row.sma / 1000
-                        ecc = orbit_row.ecc
-                        t_peri = orbit_row.tperi
+                        output_bins.write('\n# Reference for orbit: {}'.format(orbit_row.ref))
 
-                        inc = orbit_row.inc
-                        node = orbit_row.node
-                        arg_peri = orbit_row.argperi
-                        
-                        ec = ElementsConverter(ra, dec)
-                        arg_peri, inc, node = ec.convert(arg_peri, inc, node)
+                        system.orbit = build_orbit(orbit_row, ra, dec, dist_pc)
 
-                        system.orbit = Orbit(period, sma, ecc, inc, node, arg_peri, t_peri)
+                    # Get coordinate offsets for the secondary
+                    # Case 1: relative RA and dec. are given
+                    elif bin_suppl_row is not None and pd.notna(bin_suppl_row.offset_ew_bin):
+                        bin_ra_offset = bin_suppl_row.offset_ew_bin / np.cos(np.radians(dec)) / 3600000
+                        bin_dec_offset = bin_suppl_row.offset_ns_bin / 3600000
 
-                    # Treat the system as two objects with fixed positions
+                    # Case 2: both separation and position angle are given
+                    elif bin_suppl_row is not None and pd.notna(bin_suppl_row.pa_bin):
+                        sep = bin_suppl_row.sep_bin
+                        pa = bin_suppl_row.pa_bin
+
+                        bin_ra_offset = sep * np.sin(np.radians(pa)) / np.cos(np.radians(dec)) / 3600000
+                        bin_dec_offset = sep * np.cos(np.radians(pa)) / 3600000
+
+                    # Case 3: only separation is given
+                    elif bin_suppl_row is not None and pd.notna(bin_suppl_row.sep_bin):
+                        bin_dec_offset = bin_suppl_row.sep_bin / 3600000
+                    elif pd.notna(bin_row.sep_bin):
+                        bin_dec_offset = bin_row.sep_bin / 3600000
+
                     else:
-                        # Get coordinate offsets for the secondary
-                        # Case 1: relative RA and dec. are given
-                        if bin_suppl_row is not None and pd.notna(bin_suppl_row.offset_ew_bin):
-                            bin_ra_offset = bin_suppl_row.offset_ew_bin / np.cos(np.radians(dec)) / 3600000
-                            bin_dec_offset = bin_suppl_row.offset_ns_bin / 3600000
-
-                        # Case 2: both separation and position angle are given
-                        elif bin_suppl_row is not None and pd.notna(bin_suppl_row.pa_bin):
-                            sep = bin_suppl_row.sep_bin
-                            pa = bin_suppl_row.pa_bin
-
-                            bin_ra_offset = sep * np.sin(np.radians(pa)) / np.cos(np.radians(dec)) / 3600000
-                            bin_dec_offset = sep * np.cos(np.radians(pa)) / 3600000
-
-                        # Case 3: only separation is given
-                        elif bin_suppl_row is not None and pd.notna(bin_suppl_row.sep_bin):
-                            bin_dec_offset = bin_suppl_row.sep_bin / 3600000
-                        elif pd.notna(bin_row.sep_bin):
-                            bin_dec_offset = bin_row.sep_bin / 3600000
-
-                        else:
-                            output.write('\n# Binary/multiple, missing separation')
-                            process_as_single = True
-                            break
+                        output.write('\n# Binary/multiple, missing separation')
+                        process_as_single = True
+                        break
 
                     primary = UltracoolDwarf(system)
                     secondary = UltracoolDwarf(system)
@@ -429,28 +415,31 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
 
                     # Get component spectral types
                     if bin_suppl_row is not None and pd.notna(bin_suppl_row.ref_spt):
-                        primary.spt_num = bin_suppl_row.sptnum_pri
+                        primary.spt_num = abs(bin_suppl_row.sptnum_pri)
                         primary.spt_note = bin_suppl_row.ref_spt
 
-                        secondary.spt_num = bin_suppl_row.sptnum_sec
+                        secondary.spt_num = abs(bin_suppl_row.sptnum_sec)
                         secondary.spt_note = bin_suppl_row.ref_spt
                     else:
                         if pd.notna(bin_row.sptnum_pri):
-                            primary.spt_num = bin_row.sptnum_pri
+                            primary.spt_num = abs(bin_row.sptnum_pri)
                         else:
                             primary.spt_note = 'missing, combined spectral type used'
 
                         if pd.notna(bin_row.sptnum_sec):
-                            secondary.spt_num = bin_row.sptnum_sec
+                            secondary.spt_num = abs(bin_row.sptnum_sec)
                         else:
                             secondary.spt_note = 'missing, combined spectral type used'
 
                     # Get masses, if measured
-                    if orbit_row is not None:
-                        # Only the ratio is relevant here, so no unit conversion is done
-                        if pd.notna(orbit_row.mass_pri):
+                    measured_masses = False
+                    if orbit_row is not None and pd.notna(orbit_row.mass_pri):
+                        measured_masses = True
+                        if orbit_row.massunit == 'Mjup':
+                            primary.mass = orbit_row.mass_pri / consts.MSUN_TO_MJUP
+                            secondary.mass = orbit_row.mass_sec / consts.MSUN_TO_MJUP
+                        else:
                             primary.mass = orbit_row.mass_pri
-                        if pd.notna(orbit_row.mass_sec):
                             secondary.mass = orbit_row.mass_sec
 
                     # Calculate the absolute magnitudes for the components in order to try
@@ -486,11 +475,21 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                         secondary.dec += bin_dec_offset
                         system.ra += bin_ra_offset / (1 + primary.mass / secondary.mass)
                         system.dec += bin_dec_offset / (1 + primary.mass / secondary.mass)
+                    elif system.orbit.sma_1 is not None:
+                        system.orbit.sma_2 = system.orbit.sma_1 * primary.mass / secondary.mass
+                    else:
+                        # Calculate the semi-major axis from Kepler's third law
+                        if system.orbit.sma is None:
+                            system.orbit.sma = (system.orbit.period**2 * (primary.mass + secondary.mass)) ** (1/3)
+
+                        system.orbit.sma_1 = system.orbit.sma / (1 + primary.mass / secondary.mass)
+                        system.orbit.sma_2 = system.orbit.sma - system.orbit.sma_1
 
                     system.components.append(primary)
                     system.components.append(secondary)
 
-                    system.write(output_bins, is_subdwarf=is_subdwarf, offset_coords=offset_coords)
+                    system.write(output_bins, is_subdwarf=is_subdwarf,
+                                 offset_coords=offset_coords, measured_masses=measured_masses)
 
             # Process triple system components
             try:
@@ -500,6 +499,8 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
 
             if triple_row is not None:
                 process_as_single = False
+
+                orbit_row_inner = None
 
                 primary = UltracoolDwarf(system)
                 secondary = UltracoolDwarf(system)
@@ -521,26 +522,52 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                 else:
                     secondary.spt_num = triple_row.sptnum_2
 
+                # Get masses, if measured
+                measured_masses = False
+                if orbit_row is not None:
+                    if len(orbit_row.shape) > 1:  # find if there are multiple rows
+                        orbit_row_inner = orbit_row.iloc[1]
+                        orbit_row = orbit_row.iloc[0]
+
+                    if pd.notna(orbit_row.massunit):
+                        measured_masses = True
+                        if orbit_row.massunit == 'Mjup':
+                            primary.mass = orbit_row.mass_pri / consts.MSUN_TO_MJUP
+                            secondary.mass = orbit_row.mass_sec / consts.MSUN_TO_MJUP
+                        else:
+                            primary.mass = orbit_row.mass_pri
+                            secondary.mass = orbit_row.mass_sec
+
                 primary.estimate_properties(interp)
                 secondary.estimate_properties(interp)
 
-                if bin_suppl_row is not None and pd.notna(bin_suppl_row.pa_bin):
-                    sep = bin_suppl_row.sep_bin
-                    pa = bin_suppl_row.pa_bin
+                if orbit_row is not None:
+                    output_bins.write('\n# Reference for orbit: {}'.format(orbit_row.ref))
 
-                    bin_ra_offset = sep * np.sin(np.radians(pa)) / np.cos(np.radians(dec)) / 3600000
-                    bin_dec_offset = sep * np.cos(np.radians(pa)) / 3600000
+                    system.orbit = build_orbit(orbit_row, ra, dec, dist_pc)
+
+                    system.orbit.sma_1 = system.orbit.sma / (1 + primary.mass / secondary.mass)
+                    system.orbit.sma_2 = system.orbit.sma - system.orbit.sma_1
                 else:
-                    bin_ra_offset = 0.0
-                    bin_dec_offset = triple_row.sep_21 / 3600000
-                secondary.ra += bin_ra_offset
-                secondary.dec += bin_dec_offset
+                    if bin_suppl_row is not None and pd.notna(bin_suppl_row.pa_bin):
+                        sep = bin_suppl_row.sep_bin
+                        pa = bin_suppl_row.pa_bin
+
+                        bin_ra_offset = sep * np.sin(np.radians(pa)) / np.cos(np.radians(dec)) / 3600000
+                        bin_dec_offset = sep * np.cos(np.radians(pa)) / 3600000
+                    else:
+                        bin_ra_offset = 0.0
+                        bin_dec_offset = triple_row.sep_21 / 3600000
+                    secondary.ra += bin_ra_offset
+                    secondary.dec += bin_dec_offset
 
                 system.components.append(primary)
 
                 if pd.notna(triple_row.sep_32):
                     subsystem = UltracoolSystem(names, secondary.ra, secondary.dec, dist, secondary.spt_num, age,
                                                 infourl=infourl, age_category=age_category)
+                    subsystem.parent = system
+                    secondary.parent = subsystem
                     tertiary = UltracoolDwarf(subsystem)
 
                     subsystem.names = [name + ' BC' for name in names]
@@ -552,48 +579,68 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
                     else:
                         tertiary.spt_num = triple_row.sptnum_3
 
+                    if orbit_row_inner is not None and pd.notna(orbit_row_inner.mass_pri):
+                        subsystem.mass = secondary.mass
+
+                        if orbit_row_inner.massunit == 'Mjup':
+                            secondary.mass = orbit_row_inner.mass_pri / consts.MSUN_TO_MJUP
+                            tertiary.mass = orbit_row_inner.mass_sec / consts.MSUN_TO_MJUP
+                        else:
+                            secondary.mass = orbit_row_inner.mass_pri
+                            tertiary.mass = orbit_row_inner.mass_sec
+
                     tertiary.estimate_properties(interp)
 
-                    if bin_suppl_row is not None and pd.notna(bin_suppl_row.pa_tri):
-                        sep = bin_suppl_row.sep_tri
-                        pa = bin_suppl_row.pa_tri
+                    if orbit_row_inner is not None:
+                        subsystem.orbit = build_orbit(orbit_row_inner, ra, dec, dist_pc)
 
-                        triple_ra_offset = sep * np.sin(np.radians(pa)) / np.cos(np.radians(dec)) / 3600000
-                        triple_dec_offset = sep * np.cos(np.radians(pa)) / 3600000
+                        subsystem.orbit.sma_1 = subsystem.orbit.sma / (1 + secondary.mass / tertiary.mass)
+                        subsystem.orbit.sma_2 = subsystem.orbit.sma - subsystem.orbit.sma_1
                     else:
-                        triple_ra_offset = 0.0
-                        triple_dec_offset = triple_row.sep_32 / 3600000
-                    tertiary.ra += triple_ra_offset
-                    tertiary.dec += triple_dec_offset
+                        if bin_suppl_row is not None and pd.notna(bin_suppl_row.pa_tri):
+                            sep = bin_suppl_row.sep_tri
+                            pa = bin_suppl_row.pa_tri
 
-                    subsystem.ra += triple_ra_offset / (1 + secondary.mass / tertiary.mass)
-                    subsystem.dec += triple_dec_offset / (1 + secondary.mass / tertiary.mass)
+                            triple_ra_offset = sep * np.sin(np.radians(pa)) / np.cos(np.radians(dec)) / 3600000
+                            triple_dec_offset = sep * np.cos(np.radians(pa)) / 3600000
+                        else:
+                            triple_ra_offset = 0.0
+                            triple_dec_offset = triple_row.sep_32 / 3600000
+                        tertiary.ra += triple_ra_offset
+                        tertiary.dec += triple_dec_offset
 
-                    system.ra += (subsystem.ra - ra) / (1 + primary.mass / (secondary.mass + tertiary.mass))
-                    system.dec += (subsystem.dec - dec) / (1 + primary.mass / (secondary.mass + tertiary.mass))
+                        subsystem.ra += triple_ra_offset / (1 + secondary.mass / tertiary.mass)
+                        subsystem.dec += triple_dec_offset / (1 + secondary.mass / tertiary.mass)
+
+                        system.ra += (subsystem.ra - ra) / (1 + primary.mass / (secondary.mass + tertiary.mass))
+                        system.dec += (subsystem.dec - dec) / (1 + primary.mass / (secondary.mass + tertiary.mass))
 
                     subsystem.components.append(secondary)
                     subsystem.components.append(tertiary)
                     system.components.append(subsystem)
+
+                # Handle unresolved subsystems as single stars
                 else:
-                    # Handle unresolved subsystems as single stars
-                    system.ra += bin_ra_offset / (1 + primary.mass / secondary.mass)
-                    system.dec += bin_dec_offset / (1 + primary.mass / secondary.mass)
+                    if system.orbit is None:
+                        system.ra += bin_ra_offset / (1 + primary.mass / secondary.mass)
+                        system.dec += bin_dec_offset / (1 + primary.mass / secondary.mass)
 
                     system.components.append(secondary)
 
                     output_bins.write('\n# Multiple system with unresolved subsystem')
 
-                system.write(output_bins, is_subdwarf=is_subdwarf, offset_coords=offset_coords)
+                system.write(output_bins, is_subdwarf=is_subdwarf,
+                             offset_coords=offset_coords, measured_masses=measured_masses)
 
         if process_as_single:
             dwarf = UltracoolDwarf(system)
             dwarf.names = names + catalogs
 
             # Get physical parameters (radius and Teff) from table
-            properties_match = input_properties[
-                (input_properties.name == row.name) | (input_properties.name_simbadable == row.name_simbadable)]
-            properties_row = properties_match.iloc[0] if not properties_match.empty else None
+            try:
+                properties_row = input_properties.loc[row.name]
+            except KeyError:
+                properties_row = None
 
             if properties_row is not None:
                 dwarf.lbol = properties_row.log_lbol_lsun
@@ -635,7 +682,8 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
 
             dwarf.estimate_properties(interp)
 
-            dwarf.write(output, is_subdwarf=is_subdwarf, coord_decimal_digits=coord_decimal_digits, offset_coords=offset_coords)
+            dwarf.write(output, is_subdwarf=is_subdwarf,
+                        coord_decimal_digits=coord_decimal_digits, offset_coords=offset_coords)
 
         processed_count += 1
         if verbose:

@@ -7,12 +7,11 @@ from typing import TextIO
 from . import consts
 from .bhac15 import BhacInterpolator
 from .cond03 import CondInterpolator
-from .utils import *
 
 
 class EvoInterpolator:
     """Interpolate physical properties from different evolutionary models."""
-    def __init__(self):
+    def __init__(self) -> None:
         self.bhac_interp = BhacInterpolator()
         self.cond_interp = CondInterpolator()
 
@@ -35,16 +34,16 @@ class EvoInterpolator:
         """Interpolate radius from evolutionary model grids."""
         if lbol is not None:
             if lbol > self.bhac_interp.min_lum(log_age):
-                return self.bhac_interp.interpolate_t_l_r(log_age, lbol) * consts.SOLAR_RADIUS, 'BHAC'
+                return self.bhac_interp.interpolate_t_l_r(log_age, lbol), 'BHAC'
             else:
-                return self.cond_interp.interpolate_t_l_r(log_age, lbol) * consts.SOLAR_RADIUS, 'COND'
+                return self.cond_interp.interpolate_t_l_r(log_age, lbol), 'COND'
         else:
             log_teff = np.log10(teff)
 
             if teff > self.bhac_interp.min_teff(log_age):
-                return self.bhac_interp.interpolate_t_teff_r(log_age, log_teff) * consts.SOLAR_RADIUS, 'BHAC'
+                return self.bhac_interp.interpolate_t_teff_r(log_age, log_teff), 'BHAC'
             else:
-                return self.cond_interp.interpolate_t_teff_r(log_age, log_teff) * consts.SOLAR_RADIUS, 'COND'
+                return self.cond_interp.interpolate_t_teff_r(log_age, log_teff), 'COND'
 
     def interpolate_mass(self, log_age: float, lbol: float, teff: float) -> float:
         """Interpolate mass from evolutionary model grids."""
@@ -63,15 +62,53 @@ class EvoInterpolator:
 
 
 class Orbit:
-    """A Keplerian orbit of a binary system"""
-    def __init__(self, period: float, sma: float, ecc: float, inc: float, node: float, arg_peri: float, t_peri: float):
+    """A Keplerian orbit of a binary system."""
+    def __init__(self, period: float=None, sma: float=None, ecc: float=0.0, inc: float=0.0,
+                 node: float=0.0, arg_peri: float=0.0, mean_anomaly: float=0.0, epoch: float=consts.J2000) -> None:
         self.period = period
         self.sma = sma
+        self.sma_1 = sma
+        self.sma_2 = sma
         self.ecc = ecc
         self.inc = inc
         self.node = node
         self.arg_peri = arg_peri
-        self.t_peri = t_peri
+        self.mean_anomaly = mean_anomaly
+        self.epoch = epoch
+
+    def write(self, component_idx: int, pri_mass: float, sec_mass: float, measured_masses: bool=False) -> str:
+        """Writes an orbit definition as Celestia STC parameters."""
+        output = ''
+
+        if component_idx == 0:  # primary
+            sma = self.sma_1
+            arg_peri = (self.arg_peri + 180) % 360
+        elif component_idx == 1:  # secondary
+            sma = self.sma_2
+            arg_peri = self.arg_peri
+
+        output += '\n\tEllipticalOrbit\n\t{'
+        output += '\n\t\tPeriod {:g}'.format(self.period)
+        output += '\n\t\tSemiMajorAxis {:.4g}'.format(sma)
+        if measured_masses:
+            output += ' # mass ratio {:.3f}:{:.3f}'.format(pri_mass, sec_mass)
+        else:
+            output += ' # mass ratio approximate'
+        if self.ecc:
+            output += '\n\t\tEccentricity {}'.format(self.ecc)
+        if self.inc:
+            output += '\n\t\tInclination {}'.format(round(self.inc, 2))
+        if self.node:
+            output += '\n\t\tAscendingNode {}'.format(round(self.node, 2))
+        if arg_peri:
+            output += '\n\t\tArgOfPericenter {}'.format(round(arg_peri, 2))
+        if self.mean_anomaly:
+            output += '\n\t\tMeanAnomaly {}'.format(round(self.mean_anomaly, 2))
+        if self.epoch != consts.J2000:
+            output += '\n\t\tEpoch {}'.format(round(self.epoch, 6))
+        output += '\n\t}'
+
+        return output
 
 
 class UltracoolSystem:
@@ -79,7 +116,8 @@ class UltracoolSystem:
     subsystems to create higher-order hierarchies."""
     def __init__(self, names: list[str], ra: float, dec: float, dist: float, spt_num: float, age: float, *,
                  subclass: str='d', infourl: str=None, age_category: str=None, dist_note: str=None, spt_note: str=None,
-                 components: list['UltracoolDwarf'] | list['UltracoolSystem']=None, orbit: Orbit=None) -> None:
+                 parent: 'UltracoolSystem'=None, components: list['UltracoolDwarf'] | list['UltracoolSystem']=None,
+                 mass: float=None, orbit: Orbit=None) -> None:
         self.names = copy.deepcopy(names)
         self.ra = ra
         self.dec = dec
@@ -92,31 +130,48 @@ class UltracoolSystem:
         self.dist_note = dist_note
         self.spt_note = spt_note
 
+        self.parent = parent
         self.components = [] if components is None else components
-
+        self.mass = mass
         self.orbit = orbit
 
         # The evolutionary model grids only go up to 10 Gyr, so clamp the object's age if it exceeds that
         self.log_age = min(np.log10(self.age), 1.0)
 
     def write(self, stream: TextIO, *, is_component: bool=False, is_subdwarf: bool=False,
-              coord_decimal_digits: int=7, offset_coords: bool=False) -> None:
+              coord_decimal_digits: int=7, offset_coords: bool=False, measured_masses: bool=False) -> None:
         """Writes a Celestia STC definition for an ultra-cool dwarf binary/multiple system to a file
         stream."""
 
         stream.write('\nBarycenter "{}"'.format(':'.join(self.names)))
         stream.write('\n{')
-        stream.write('\n\tRA {}'.format(round(self.ra, coord_decimal_digits)))
-        stream.write('\n\tDec {}'.format(round(self.dec, coord_decimal_digits)))
-        if not is_component and offset_coords:
-            stream.write(' # offset from primary coordinates')
-        stream.write('\n\tDistance {:.5g}'.format(self.dist))
-        if not is_component and self.dist_note is not None:
-            stream.write(' # ' + self.dist_note)
+
+        if self.parent is not None and self.parent.orbit is not None:
+            stream.write('\n\tOrbitBarycenter "{}"'.format(self.parent.names[0]))
+
+            index = self.parent.components.index(self)
+            if index == 0:  # primary
+                pri_mass = self.mass
+                sec_mass = self.parent.components[1].mass
+            else:  # secondary
+                pri_mass = self.parent.components[0].mass
+                sec_mass = self.mass
+
+            stream.write(self.parent.orbit.write(index, pri_mass, sec_mass, measured_masses))
+        else:
+            stream.write('\n\tRA {}'.format(round(self.ra, coord_decimal_digits)))
+            stream.write('\n\tDec {}'.format(round(self.dec, coord_decimal_digits)))
+            if not is_component and offset_coords:
+                stream.write(' # offset from primary coordinates')
+            stream.write('\n\tDistance {:.5g}'.format(self.dist))
+            if not is_component and self.dist_note is not None:
+                stream.write(' # ' + self.dist_note)
+
         stream.write('\n}\n')
 
         for component in self.components:
-            component.write(stream, is_component=True, is_subdwarf=is_subdwarf, coord_decimal_digits=coord_decimal_digits)
+            component.write(stream, is_component=True, is_subdwarf=is_subdwarf,
+                            coord_decimal_digits=coord_decimal_digits, measured_masses=measured_masses)
 
 
 class UltracoolDwarf:
@@ -290,14 +345,15 @@ class UltracoolDwarf:
         self.absmag, self.absmag_note = interp.interpolate_absmag(self.parent.log_age, self.lbol, self.teff)
         if self.radius is None:
             self.radius, self.radius_note = interp.interpolate_radius(self.parent.log_age, self.lbol, self.teff)
+            self.radius *= consts.SOLAR_RADIUS
             if self.teff is None:
                 # Stefan-Boltzmann law
-                self.teff = (10**self.lbol) ** (1/4) * (consts.SOLAR_RADIUS/self.radius) ** (1/2) * 5772
+                self.teff = (10**self.lbol) ** (1/4) * (consts.SOLAR_RADIUS/self.radius) ** (1/2) * consts.SOLAR_TEFF
         if self.mass is None:
             self.mass = interp.interpolate_mass(self.parent.log_age, self.lbol, self.teff)
 
     def write(self, stream: TextIO, *, is_component: bool=False, is_subdwarf: bool=False,
-              coord_decimal_digits: int=7, offset_coords: bool=False) -> None:
+              coord_decimal_digits: int=7, offset_coords: bool=False, measured_masses: bool=False) -> None:
         """Writes a Celestia STC definition for an ultra-cool dwarf to a file stream."""
 
         # Extract spectral class from SpT number
@@ -319,7 +375,7 @@ class UltracoolDwarf:
 
         stream.write('\n"{}"'.format(':'.join(self.names)))
         stream.write('\n{')
-        stream.write('\n\t# Assigned age: {} Gyr'.format(self.parent.age))
+        stream.write('\n\t# Assigned age: {:g} Gyr'.format(self.parent.age))
         if self.parent.age_category is not None:
             stream.write(' ({})'.format(self.parent.age_category))
         if self.properties_note is not None:
@@ -351,33 +407,14 @@ class UltracoolDwarf:
 
         if self.parent.orbit is not None:
             index = self.parent.components.index(self)
-
-            orbit = self.parent.orbit
-
-            # Semi-major axis and argument of pericenter change depending on the component
             if index == 0:  # primary
                 pri_mass = self.mass
                 sec_mass = self.parent.components[1].mass
-                sma = orbit.sma / (1 + pri_mass / sec_mass)
-
-                arg_peri = (orbit.arg_peri + 180) % 360
             else:  # secondary
                 pri_mass = self.parent.components[0].mass
                 sec_mass = self.mass
-                sma = orbit.sma / (1 + sec_mass / pri_mass)
 
-                arg_peri = orbit.arg_peri
-
-            stream.write('\n\tEllipticalOrbit\n\t{')
-            stream.write('\n\t\tEpoch {}'.format(orbit.t_peri))
-            stream.write('\n\t\tPeriod {}'.format(round(orbit.period, 6)))
-            stream.write('\n\t\tSemiMajorAxis {}'.format(round(sma, 3)))
-            stream.write(' # mass ratio {}J:{}J'.format(pri_mass, sec_mass))
-            stream.write('\n\t\tEccentricity {}'.format(orbit.ecc))
-            stream.write('\n\t\tInclination {}'.format(round(orbit.inc, 3)))
-            stream.write('\n\t\tAscendingNode {}'.format(round(orbit.node, 3)))
-            stream.write('\n\t\tArgOfPericenter {}'.format(round(arg_peri, 3)))
-            stream.write('\n\t}')
+            stream.write(self.parent.orbit.write(index, pri_mass, sec_mass, measured_masses))
 
         if self.parent.infourl is not None:
             stream.write('\n\tInfoURL "{}"'.format(self.parent.infourl))
