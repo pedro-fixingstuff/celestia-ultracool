@@ -285,7 +285,10 @@ def build_catalogs(verbose: bool, write_catalogs: bool, write_multiples: bool, w
 
         if suppl_row is not None and pd.notna(suppl_row.age):
             age = suppl_row.age
-            age_category = None
+            if pd.notna(suppl_row.ref_age):
+                age_category = suppl_row.ref_age
+            else:
+                age_category = None
         else:
             age = row.age_singlevalue_gyr_formula
             age_category = row.age_category
